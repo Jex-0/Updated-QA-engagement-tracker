@@ -8,6 +8,3 @@ createRoot(document.getElementById("root")!).render(
     <App />
   </StrictMode>,
 );
-
-// Visible in the browser console — confirms the JavaScript bundle executed.
-console.info("[app] mounted — Client Engagement Tracker v2");
