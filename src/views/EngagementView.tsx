@@ -4,7 +4,7 @@ import { Badge, Button, Card, CardHeader, EmptyState, Field, Input, Modal, Score
 import { Icon } from "../components/icons";
 import { buildTimelineForRecord, coachingRecommendations } from "../lib/timeline";
 import { avg, complianceScore, effectiveScore, fmtDateTime, fmtTime } from "../lib/format";
-import { ENGAGEMENT_ITEMS } from "../lib/checklist";
+import { resolveCategoryLabel } from "../lib/checklist";
 import type { EventType, TimelineEvent } from "../lib/types";
 import type { Route } from "../lib/router";
 
@@ -51,7 +51,10 @@ export function EngagementView({ id, onNavigate }: { id: string; onNavigate: (r:
   const canView = isOwn || session.role !== "agent";
   const openDispute = state.disputes.find((d) => d.engagementId === id && d.status === "open");
 
-  const timeline: TimelineEvent[] = useMemo(() => (record ? buildTimelineForRecord(record) : []), [record]);
+  const timeline: TimelineEvent[] = useMemo(
+    () => (record ? buildTimelineForRecord(record, state.categories, state.phrases) : []),
+    [record, state.categories, state.phrases],
+  );
   const events = useMemo(() => {
     const q = search.trim().toLowerCase();
     return timeline.filter((e) => {
@@ -67,14 +70,20 @@ export function EngagementView({ id, onNavigate }: { id: string; onNavigate: (r:
   );
   const peerAvg = avg(agentOther.map((r) => effectiveScore(r)));
   const peerBest = agentOther.length ? Math.max(...agentOther.map((r) => effectiveScore(r))) : 0;
-  const teamCompliance = useMemo(() => complianceScore(state.records.filter((r) => r.status === "active")), [state.records]);
+  const teamCompliance = useMemo(
+    () => complianceScore(state.records.filter((r) => r.status === "active"), state.phrases, state.categories),
+    [state.records, state.phrases, state.categories],
+  );
   const recordCompliance = useMemo(() => {
     if (!record) return 0;
-    const comp = ENGAGEMENT_ITEMS.filter((i) => ["Verification", "Keeping Client Informed", "Recap_and_Summarise", "Call Closing"].includes(i.category));
-    const done = comp.filter((c) => record!.checkedItems.includes(c.category)).length;
-    return Math.round((done / comp.length) * 100);
-  }, [record]);
-  const recommendations = useMemo(() => (record ? coachingRecommendations(record) : []), [record]);
+    const comp = state.phrases.filter((p) => ["Verification", "Keeping Client Informed", "Recap_and_Summarise", "Call Closing"].includes(resolveCategoryLabel(state.categories, state.phrases, p.id)));
+    const done = comp.filter((c) => record!.checkedItems.includes(c.id)).length;
+    return comp.length ? Math.round((done / comp.length) * 100) : 0;
+  }, [record, state.phrases, state.categories]);
+  const recommendations = useMemo(
+    () => (record ? coachingRecommendations(record, state.categories, state.phrases) : []),
+    [record, state.categories, state.phrases],
+  );
 
   if (!record) {
     return (
@@ -245,7 +254,10 @@ export function EngagementView({ id, onNavigate }: { id: string; onNavigate: (r:
                     <span className="timeline-body">
                       <strong>{e.label}</strong>
                       <small>{e.detail}</small>
-                      <Badge tone={meta.tone} className="timeline-tag">{meta.label}</Badge>
+                      <span className="timeline-tags">
+                        <Badge tone={meta.tone} className="timeline-tag">{meta.label}</Badge>
+                        {e.source ? <Badge tone={e.source === "speech" ? "info" : "neutral"} className="timeline-tag">{e.source === "speech" ? "Speech" : "Manual"}</Badge> : null}
+                      </span>
                     </span>
                   </button>
                 );
@@ -264,7 +276,7 @@ export function EngagementView({ id, onNavigate }: { id: string; onNavigate: (r:
               <h4>Strengths</h4>
               {record.checkedItems.length ? (
                 <ul className="ai-list good">
-                  {record.checkedItems.map((c) => <li key={c}><Icon name="checkCircle" size={13} /> {c}</li>)}
+                  {record.checkedItems.map((c) => <li key={c}><Icon name="checkCircle" size={13} /> {resolveCategoryLabel(state.categories, state.phrases, c)}</li>)}
                 </ul>
               ) : (
                 <p className="ai-empty">No steps captured.</p>
@@ -274,7 +286,7 @@ export function EngagementView({ id, onNavigate }: { id: string; onNavigate: (r:
               <h4>Areas for improvement</h4>
               {record.missedItems.length ? (
                 <ul className="ai-list bad">
-                  {record.missedItems.map((c) => <li key={c}><Icon name="alert" size={13} /> {c}</li>)}
+                  {record.missedItems.map((c) => <li key={c}><Icon name="alert" size={13} /> {resolveCategoryLabel(state.categories, state.phrases, c)}</li>)}
                 </ul>
               ) : (
                 <p className="ai-empty">All steps completed — outstanding.</p>

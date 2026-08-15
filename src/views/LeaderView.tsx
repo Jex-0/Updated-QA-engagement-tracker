@@ -98,7 +98,7 @@ export function LeaderView({ onNavigate }: { onNavigate: (r: Route) => void }) {
       totalAgents: Math.max(totalAgents, agentStats.length),
       activeAgents: activeAgents,
       avgScore: avg(scores),
-      compliance: complianceScore(scoped),
+      compliance: complianceScore(scoped, state.phrases, state.categories),
       pulse: pulseRate(scoped),
     };
   }, [scoped, agentStats.length, state.users]);

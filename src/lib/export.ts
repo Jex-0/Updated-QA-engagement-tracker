@@ -1,5 +1,6 @@
-import type { EngagementRecord } from "./types";
+import type { ChecklistCategory, EngagementRecord, Phrase } from "./types";
 import { COMPLIANCE_CATEGORIES, effectiveScore } from "./format";
+import { resolvePhrase } from "./checklist";
 
 /** Guard spreadsheet cells against formula injection (starts with = + - @). */
 function safeCell(value: string | number | boolean): string {
@@ -37,7 +38,8 @@ export function exportCSV(filename: string, headers: string[], rows: ReportRow[]
   download(filename, lines.join("\n"), "text/csv;charset=utf-8");
 }
 
-export function engagementsToRows(records: EngagementRecord[]): { headers: string[]; keys: string[]; rows: ReportRow[] } {
+export function engagementsToRows(records: EngagementRecord[], phrases: Phrase[], categories: ChecklistCategory[]): { headers: string[]; keys: string[]; rows: ReportRow[] } {
+  const label = (id: string) => resolvePhrase(categories, phrases, id)?.text ?? id;
   const headers = [
     "Agent Name",
     "Team",
@@ -64,8 +66,8 @@ export function engagementsToRows(records: EngagementRecord[]): { headers: strin
     pulseCompleted: r.pulseCompleted ? "Yes" : "No",
     dropped: r.dropped ? "Yes" : "No",
     status: r.status,
-    checkedItems: r.checkedItems.join("; "),
-    missedItems: r.missedItems.join("; "),
+    checkedItems: r.checkedItems.map(label).join("; "),
+    missedItems: r.missedItems.map(label).join("; "),
   }));
   return { headers, keys, rows };
 }
@@ -96,10 +98,11 @@ export function agentSummaryRows(records: EngagementRecord[]): { headers: string
   return { headers: ["Agent", "Team", "Engagements", "Avg Score", "Best", "Worst", "Pulse Rate %", "Dropped", "Last Review"], keys: ["agent", "team", "engagements", "avgScore", "best", "worst", "pulseRate", "dropped", "lastReview"], rows };
 }
 
-export function complianceRows(records: EngagementRecord[]): { headers: string[]; keys: string[]; rows: ReportRow[] } {
+export function complianceRows(records: EngagementRecord[], phrases: Phrase[], categories: ChecklistCategory[]): { headers: string[]; keys: string[]; rows: ReportRow[] } {
+  const categoryOf = (id: string) => resolvePhrase(categories, phrases, id)?.categoryId ?? id;
   const rows: ReportRow[] = records.map((r) => {
-    const complianceItems = r.checkedItems.filter((c) => COMPLIANCE_CATEGORIES.has(c));
-    const complianceMissed = r.missedItems.filter((c) => COMPLIANCE_CATEGORIES.has(c));
+    const complianceItems = r.checkedItems.filter((c) => COMPLIANCE_CATEGORIES.has(categoryOf(c)));
+    const complianceMissed = r.missedItems.filter((c) => COMPLIANCE_CATEGORIES.has(categoryOf(c)));
     const done = complianceItems.length;
     const total = done + complianceMissed.length;
     return {

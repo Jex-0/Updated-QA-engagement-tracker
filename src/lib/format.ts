@@ -1,5 +1,5 @@
-import type { EngagementRecord } from "./types";
-import { ENGAGEMENT_ITEMS } from "./checklist";
+import type { ChecklistCategory, EngagementRecord, Phrase } from "./types";
+import { resolvePhrase } from "./checklist";
 
 export function fmtDate(ts: number): string {
   return new Date(ts).toLocaleDateString("en-ZA", { day: "2-digit", month: "short", year: "numeric" });
@@ -62,30 +62,38 @@ export function clamp(n: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, n));
 }
 
-/** Aggregates checked / missed categories across a set of records. */
-export function aggregateCategories(records: EngagementRecord[]): {
+/**
+ * Aggregates checked / missed items across a set of records, resolving legacy
+ * category-name ids to current phrase ids so historical data still counts.
+ */
+export function aggregateCategories(
+  records: EngagementRecord[],
+  phrases: Phrase[],
+  categories: ChecklistCategory[],
+): {
   checked: Record<string, number>;
   missed: Record<string, number>;
 } {
   const checked: Record<string, number> = {};
   const missed: Record<string, number> = {};
+  const key = (id: string) => resolvePhrase(categories, phrases, id)?.id ?? id;
   for (const r of records) {
-    for (const c of r.checkedItems) checked[c] = (checked[c] || 0) + 1;
-    for (const c of r.missedItems) missed[c] = (missed[c] || 0) + 1;
+    for (const c of r.checkedItems) checked[key(c)] = (checked[key(c)] || 0) + 1;
+    for (const c of r.missedItems) missed[key(c)] = (missed[key(c)] || 0) + 1;
   }
   return { checked, missed };
 }
 
-/** Returns the 11 categories in canonical order with per-category performance. */
-export function categoryPerformance(records: EngagementRecord[]) {
-  const { checked, missed } = aggregateCategories(records);
-  return ENGAGEMENT_ITEMS.map((item) => {
-    const done = checked[item.category] || 0;
-    const not = missed[item.category] || 0;
+/** Per-category performance for the current checklist (dynamic, editable). */
+export function categoryPerformance(records: EngagementRecord[], phrases: Phrase[], categories: ChecklistCategory[]) {
+  const { checked, missed } = aggregateCategories(records, phrases, categories);
+  return phrases.map((p) => {
+    const done = checked[p.id] || 0;
+    const not = missed[p.id] || 0;
     const total = done + not;
     return {
-      category: item.category,
-      phrase: item.phrase,
+      category: p.categoryId,
+      phrase: p.text,
       done,
       missed: not,
       rate: total ? Math.round((done / total) * 100) : 0,
@@ -101,14 +109,19 @@ export const COMPLIANCE_CATEGORIES = new Set([
   "Call Closing",
 ]);
 
-export function complianceScore(records: EngagementRecord[]): number {
+export function complianceScore(
+  records: EngagementRecord[],
+  phrases: Phrase[],
+  categories: ChecklistCategory[],
+): number {
   if (!records.length) return 0;
   let done = 0;
   let total = 0;
+  const categoryOf = (id: string) => resolvePhrase(categories, phrases, id)?.categoryId ?? id;
   for (const r of records) {
-    for (const c of r.checkedItems) if (COMPLIANCE_CATEGORIES.has(c)) done++;
-    for (const c of r.checkedItems) if (COMPLIANCE_CATEGORIES.has(c)) total++;
-    for (const c of r.missedItems) if (COMPLIANCE_CATEGORIES.has(c)) total++;
+    for (const c of r.checkedItems) if (COMPLIANCE_CATEGORIES.has(categoryOf(c))) done++;
+    for (const c of r.checkedItems) if (COMPLIANCE_CATEGORIES.has(categoryOf(c))) total++;
+    for (const c of r.missedItems) if (COMPLIANCE_CATEGORIES.has(categoryOf(c))) total++;
   }
   return total ? Math.round((done / total) * 100) : 0;
 }

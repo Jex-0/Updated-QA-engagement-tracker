@@ -2,17 +2,23 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../lib/store";
 import { Button, Card, CardHeader, EmptyState, Modal, ProgressBar, ScoreBadge, Textarea, useToast } from "../components/ui";
 import { Icon } from "../components/icons";
-import { ENGAGEMENT_ITEMS, PULSE_LABEL, PULSE_PROMPT, TOTAL_ITEMS } from "../lib/checklist";
+import { buildKeywordMap, PULSE_LABEL, PULSE_PROMPT } from "../lib/checklist";
 import { buildTimelineFromSession } from "../lib/timeline";
-import { effectiveScore, fmtDateTime } from "../lib/format";
+import { effectiveScore, fmtDateTime, fmtTime } from "../lib/format";
 import { useSpeech } from "../hooks/useSpeech";
 import type { Route } from "../lib/router";
 
 const SESSION_KEY = "qe-session-state-v2";
 
 interface SessionState {
+  /** phrase id → checked */
   checked: Record<string, boolean>;
+  /** phrase id → seconds into the call when captured */
   ticks: Record<string, number>;
+  /** phrase id → chosen alternative phrasing ("" = standard) */
+  variants: Record<string, string>;
+  /** phrase id → how it was captured */
+  sources: Record<string, "speech" | "manual">;
   pulse: boolean;
   startedAt: number;
   transcript: string;
@@ -30,7 +36,7 @@ function loadSession(name: string): SessionState {
 }
 
 function emptySession(): SessionState {
-  return { checked: {}, ticks: {}, pulse: false, startedAt: Date.now(), transcript: "", notes: "" };
+  return { checked: {}, ticks: {}, variants: {}, sources: {}, pulse: false, startedAt: Date.now(), transcript: "", notes: "" };
 }
 
 export function TrackerView({ onNavigate }: { onNavigate: (r: Route) => void }) {
@@ -39,7 +45,12 @@ export function TrackerView({ onNavigate }: { onNavigate: (r: Route) => void }) 
   const session = state.session!;
   const [sess, setSess] = useState<SessionState>(() => loadSession(session.name));
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [openPicker, setOpenPicker] = useState<string | null>(null);
   const savedRef = useRef(false);
+
+  const phrases = state.phrases;
+  const categories = state.categories;
+  const manualEnabled = state.settings.manualTickEnabled;
 
   useEffect(() => {
     try {
@@ -49,9 +60,9 @@ export function TrackerView({ onNavigate }: { onNavigate: (r: Route) => void }) 
     }
   }, [sess, session.name]);
 
-  const checkedCount = ENGAGEMENT_ITEMS.filter((i) => sess.checked[i.category]).length;
-  const liveScore = Math.round((checkedCount / TOTAL_ITEMS) * 100);
-  const missed = ENGAGEMENT_ITEMS.filter((i) => !sess.checked[i.category]).map((i) => i.category);
+  const checkedCount = phrases.filter((p) => sess.checked[p.id]).length;
+  const liveScore = Math.round((checkedCount / Math.max(phrases.length, 1)) * 100);
+  const missed = phrases.filter((p) => !sess.checked[p.id]).map((p) => p.id);
 
   const myRecords = useMemo(
     () =>
@@ -61,27 +72,56 @@ export function TrackerView({ onNavigate }: { onNavigate: (r: Route) => void }) 
     [state.records, session.name, session.team],
   );
 
-  const speech = useSpeech((category) => {
+  const keywordMap = useMemo(() => buildKeywordMap(phrases), [phrases]);
+
+  const speech = useSpeech(keywordMap, (phraseId) => {
     setSess((s) => {
-      if (s.checked[category]) return s;
+      if (s.checked[phraseId]) return s;
       const seconds = (Date.now() - s.startedAt) / 1000;
-      return { ...s, checked: { ...s.checked, [category]: true }, ticks: { ...s.ticks, [category]: seconds } };
+      return {
+        ...s,
+        checked: { ...s.checked, [phraseId]: true },
+        ticks: { ...s.ticks, [phraseId]: seconds },
+        sources: { ...s.sources, [phraseId]: "speech" },
+      };
     });
-    toast.push(`${category} detected and ticked automatically`, "info");
+    const phrase = phrases.find((p) => p.id === phraseId);
+    const cat = categories.find((c) => c.id === phrase?.categoryId);
+    toast.push(`${cat?.name ?? phraseId} detected — ticked automatically at ${fmtTime(secondsNow())}`, "info");
   });
 
-  const toggleItem = (category: string) => {
+  /** helper for the toast above */
+  function secondsNow(): number {
+    return (Date.now() - sess.startedAt) / 1000;
+  }
+
+  const untick = (phraseId: string) => {
     setSess((s) => {
-      const now = (Date.now() - s.startedAt) / 1000;
-      if (s.checked[category]) {
-        const next = { ...s.checked };
-        delete next[category];
-        const ticks = { ...s.ticks };
-        delete ticks[category];
-        return { ...s, checked: next, ticks };
-      }
-      return { ...s, checked: { ...s.checked, [category]: true }, ticks: { ...s.ticks, [category]: now } };
+      const checked = { ...s.checked };
+      delete checked[phraseId];
+      const ticks = { ...s.ticks };
+      delete ticks[phraseId];
+      const variants = { ...s.variants };
+      delete variants[phraseId];
+      const sources = { ...s.sources };
+      delete sources[phraseId];
+      return { ...s, checked, ticks, variants, sources };
     });
+  };
+
+  const tickManual = (phraseId: string, variant: string) => {
+    const seconds = (Date.now() - sess.startedAt) / 1000;
+    setSess((s) => ({
+      ...s,
+      checked: { ...s.checked, [phraseId]: true },
+      ticks: { ...s.ticks, [phraseId]: seconds },
+      variants: { ...s.variants, [phraseId]: variant },
+      sources: { ...s.sources, [phraseId]: "manual" },
+    }));
+    setOpenPicker(null);
+    const phrase = phrases.find((p) => p.id === phraseId);
+    const cat = categories.find((c) => c.id === phrase?.categoryId);
+    toast.push(variant ? `${cat?.name ?? phraseId} ticked (variation: “${variant}”)` : `${cat?.name ?? phraseId} ticked`);
   };
 
   const togglePulse = () => {
@@ -98,11 +138,11 @@ export function TrackerView({ onNavigate }: { onNavigate: (r: Route) => void }) 
   const saveCall = (dropped: boolean) => {
     if (savedRef.current) return;
     savedRef.current = true;
-    const timeline = buildTimelineFromSession(sess.ticks, missed, sess.pulse);
+    const timeline = buildTimelineFromSession(categories, phrases, sess.ticks, sess.variants, sess.sources, missed, sess.pulse);
     actions.saveEngagement({
       userName: session.name,
       team: session.team,
-      checkedItems: ENGAGEMENT_ITEMS.filter((i) => sess.checked[i.category]).map((i) => i.category),
+      checkedItems: phrases.filter((p) => sess.checked[p.id]).map((p) => p.id),
       missedItems: missed,
       pulseCompleted: sess.pulse,
       dropped,
@@ -113,6 +153,7 @@ export function TrackerView({ onNavigate }: { onNavigate: (r: Route) => void }) 
     toast.push(dropped ? "Call saved as DROPPED for team review." : "Engagement saved to team history.");
     speech.reset();
     setSess(emptySession());
+    setOpenPicker(null);
     window.setTimeout(() => {
       savedRef.current = false;
     }, 800);
@@ -126,43 +167,111 @@ export function TrackerView({ onNavigate }: { onNavigate: (r: Route) => void }) 
         <Card className="warm-card">
           <div className="warm-icon"><Icon name="headphones" size={18} /></div>
           <p>
-            <strong>Live QA session</strong> — tick each step as it happens during the call. The speech assistant can
-            auto-detect quality markers; your leader sees the full timeline with coaching opportunities.
+            <strong>Live QA session</strong> — phrases are captured automatically by the speech assistant with an exact
+            timestamp. Your leader sees the full timeline with coaching opportunities.
           </p>
         </Card>
+
+        {!manualEnabled ? (
+          <Card className="lock-card">
+            <div className="lock-icon"><Icon name="shield" size={16} /></div>
+            <p>
+              <strong>Manual ticking is switched off.</strong> Phrases are captured automatically by the speech assistant only.
+              If speech isn't available in your browser, ask your manager to enable manual ticking (one click, applies to everyone).
+            </p>
+          </Card>
+        ) : null}
 
         <Card>
           <CardHeader
             title="Engagement checklist"
-            subtitle="QA steps assessed on every client engagement"
+            subtitle={manualEnabled ? "Tap a phrase to choose the variation that was said — it ticks either way" : "Auto-captured by the speech assistant with timestamps"}
             actions={
               <div className="summary-inline">
-                <span className="summary-inline-item"><strong>{checkedCount}</strong>/{TOTAL_ITEMS}</span>
+                <span className="summary-inline-item"><strong>{checkedCount}</strong>/{phrases.length}</span>
                 <ScoreBadge score={liveScore} />
               </div>
             }
           />
           <ProgressBar value={liveScore} />
           <div className="checklist">
-            {ENGAGEMENT_ITEMS.map((item, i) => {
-              const on = !!sess.checked[item.category];
+            {categories.map((cat) => {
+              const catPhrases = phrases.filter((p) => p.categoryId === cat.id);
+              if (!catPhrases.length) return null;
               return (
-                <label key={item.category} className={on ? "checklist-item on" : "checklist-item"} htmlFor={`item-${i}`}>
-                  <input
-                    id={`item-${i}`}
-                    type="checkbox"
-                    checked={on}
-                    onChange={() => toggleItem(item.category)}
-                  />
-                  <span className="check-custom" aria-hidden="true"><Icon name="check" size={12} /></span>
-                  <span className="item-body">
-                    <strong>{item.category}</strong>
-                    <span>{item.phrase}</span>
-                  </span>
-                  {sess.ticks[item.category] != null ? (
-                    <span className="item-time">{Math.floor(sess.ticks[item.category] / 60)}m {Math.floor(sess.ticks[item.category] % 60)}s</span>
-                  ) : null}
-                </label>
+                <div key={cat.id} className="checklist-group">
+                  {catPhrases.map((phrase) => {
+                    const on = !!sess.checked[phrase.id];
+                    const seconds = sess.ticks[phrase.id];
+                    const source = sess.sources[phrase.id];
+                    const variant = sess.variants[phrase.id];
+                    if (on) {
+                      return (
+                        <div key={phrase.id} className={`checklist-item on ${source === "speech" ? "auto" : "manual"}`}>
+                          <span className="check-custom" aria-hidden="true"><Icon name="check" size={12} /></span>
+                          <span className="item-body">
+                            <strong>{cat.name}</strong>
+                            <span>{variant ? `“${variant}”` : phrase.text}</span>
+                            {source ? <em className="source-chip">{source === "speech" ? "Speech detected" : "Manual"}</em> : null}
+                          </span>
+                          {seconds != null ? <span className="item-time mono">{fmtTime(seconds)}</span> : null}
+                          <button type="button" className="icon-btn item-undo" title="Untick" onClick={() => untick(phrase.id)}>
+                            <Icon name="x" size={13} />
+                          </button>
+                        </div>
+                      );
+                    }
+                    if (!manualEnabled) {
+                      return (
+                        <div key={phrase.id} className="checklist-item locked">
+                          <span className="check-custom" aria-hidden="true"><Icon name="lock" size={11} /></span>
+                          <span className="item-body">
+                            <strong>{cat.name}</strong>
+                            <span>{phrase.text}</span>
+                          </span>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={phrase.id} className="checklist-item pickable">
+                        <button
+                          type="button"
+                          className="item-picker"
+                          aria-expanded={openPicker === phrase.id}
+                          onClick={() => setOpenPicker(openPicker === phrase.id ? null : phrase.id)}
+                        >
+                          <span className="check-custom" aria-hidden="true" />
+                          <span className="item-body">
+                            <strong>{cat.name}</strong>
+                            <span>{phrase.text}</span>
+                          </span>
+                          <Icon name="chevronDown" size={15} className="picker-chevron" />
+                        </button>
+                        {openPicker === phrase.id ? (
+                          <div className="picker-menu" role="menu">
+                            <p className="picker-title">Which phrasing was said?</p>
+                            <button type="button" role="menuitem" className="picker-option standard" onClick={() => tickManual(phrase.id, "")}>
+                              <Icon name="checkCircle" size={14} />
+                              <span>
+                                <strong>Standard phrasing</strong>
+                                <small>{phrase.text}</small>
+                              </span>
+                            </button>
+                            {phrase.alternatives.map((alt) => (
+                              <button key={alt} type="button" role="menuitem" className="picker-option" onClick={() => tickManual(phrase.id, alt)}>
+                                <Icon name="check" size={14} />
+                                <span>
+                                  <strong>Alternative</strong>
+                                  <small>{alt}</small>
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
               );
             })}
           </div>
@@ -193,9 +302,9 @@ export function TrackerView({ onNavigate }: { onNavigate: (r: Route) => void }) 
 
       <aside className="tracker-side">
         <Card className={speech.listening ? "listen-card live" : "listen-card"}>
-          <CardHeader title={<span className="listen-title"><span className="listen-dot" /> Live speech assistant</span>} subtitle="Chrome or Edge only — listens for quality phrases and ticks the checklist" />
+          <CardHeader title={<span className="listen-title"><span className="listen-dot" /> Live speech assistant</span>} subtitle="Chrome or Edge only — listens for quality phrases, ticks them and stamps the time" />
           {notSupported ? (
-            <EmptyState icon="mic" title="Speech not supported" description="This browser has no Web Speech API. Use Chrome or Edge, or tick the checklist manually." />
+            <EmptyState icon="mic" title="Speech not supported" description="This browser has no Web Speech API. Use Chrome or Edge" />
           ) : (
             <>
               <Button
@@ -206,7 +315,7 @@ export function TrackerView({ onNavigate }: { onNavigate: (r: Route) => void }) 
               >
                 {speech.listening ? "Stop listening" : "Start listening"}
               </Button>
-              <p className="listen-status">{speech.listening ? "Listening… detected phrases tick items automatically" : "Not listening"}</p>
+              <p className="listen-status">{speech.listening ? "Listening… detected phrases tick automatically with timestamps" : "Not listening"}</p>
               <div className="transcript-box">
                 {speech.transcript ? speech.transcript : <span className="transcript-empty">Transcript appears here as you speak.</span>}
               </div>
@@ -221,9 +330,11 @@ export function TrackerView({ onNavigate }: { onNavigate: (r: Route) => void }) 
             <div className="missed-none"><Icon name="checkCircle" size={18} /> All steps completed — excellent!</div>
           ) : (
             <ul className="missed-list">
-              {missed.map((m) => (
-                <li key={m}><Icon name="alert" size={13} /> {m}</li>
-              ))}
+              {missed.map((id) => {
+                const phrase = phrases.find((p) => p.id === id);
+                const cat = categories.find((c) => c.id === phrase?.categoryId);
+                return <li key={id}><Icon name="alert" size={13} /> {cat?.name ?? id}</li>;
+              })}
             </ul>
           )}
         </Card>

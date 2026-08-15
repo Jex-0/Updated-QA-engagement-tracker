@@ -33,19 +33,19 @@ export function ReportsView() {
   const stats = useMemo(() => {
     const scores = scoped.map((r) => effectiveScore(r));
     const agents = new Set(scoped.map((r) => `${r.userName}|${r.team}`)).size;
-    return { engagements: scoped.length, agents, avg: avg(scores), compliance: complianceScore(scoped), pulse: pulseRate(scoped) };
-  }, [scoped]);
+    return { engagements: scoped.length, agents, avg: avg(scores), compliance: complianceScore(scoped, state.phrases, state.categories), pulse: pulseRate(scoped) };
+  }, [scoped, state.phrases, state.categories]);
 
   const rangeLabel = range === "all" ? "All time" : `Last ${range} days`;
   const teamLabel = team === "all" ? "All teams" : team;
 
   const buildBlocks = () => {
     if (kind === "engagements") {
-      const { headers, keys, rows } = engagementsToRows(scoped);
+      const { headers, keys, rows } = engagementsToRows(scoped, state.phrases, state.categories);
       return [{ heading: "Engagement report", headers, rows: rows.map((r) => keys.map((k) => r[k])) }];
     }
     if (kind === "compliance") {
-      const { headers, keys, rows } = complianceRows(scoped);
+      const { headers, keys, rows } = complianceRows(scoped, state.phrases, state.categories);
       return [{ heading: "Compliance report", headers, rows: rows.map((r) => keys.map((k) => r[k])) }];
     }
     if (kind === "agents") {
@@ -57,7 +57,7 @@ export function ReportsView() {
     for (const r of scoped) byTeam.set(r.team, [...(byTeam.get(r.team) || []), effectiveScore(r)]);
     const headers = ["Team", "Engagements", "Avg score", "Compliance", "Pulse rate"];
     const rows = [...byTeam.entries()]
-      .map(([t, scores]) => [t, scores.length, `${avg(scores)}%`, `${complianceScore(scoped.filter((r) => r.team === t))}%`, `${pulseRate(scoped.filter((r) => r.team === t))}%`])
+      .map(([t, scores]) => [t, scores.length, `${avg(scores)}%`, `${complianceScore(scoped.filter((r) => r.team === t), state.phrases, state.categories)}%`, `${pulseRate(scoped.filter((r) => r.team === t))}%`])
       .sort((a, b) => Number(String(b[2]).replace("%", "")) - Number(String(a[2]).replace("%", "")));
     return [{ heading: "Team performance report", headers, rows }];
   };
@@ -66,10 +66,10 @@ export function ReportsView() {
     if (!scoped.length) return;
     const stamp = new Date().toISOString().slice(0, 10);
     if (kind === "engagements") {
-      const { headers, keys, rows } = engagementsToRows(scoped);
+      const { headers, keys, rows } = engagementsToRows(scoped, state.phrases, state.categories);
       exportCSV(`Engagements_${stamp}.csv`, headers, rows, keys);
     } else if (kind === "compliance") {
-      const { headers, keys, rows } = complianceRows(scoped);
+      const { headers, keys, rows } = complianceRows(scoped, state.phrases, state.categories);
       exportCSV(`Compliance_${stamp}.csv`, headers, rows, keys);
     } else if (kind === "agents") {
       const { headers, keys, rows } = agentSummaryRows(scoped);

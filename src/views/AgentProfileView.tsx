@@ -32,7 +32,7 @@ export function AgentProfileView({ name, team, onNavigate }: { name: string; tea
 
   const scores = useMemo(() => scoped.map((r) => effectiveScore(r)), [scoped]);
   const avgScore = avg(scores);
-  const compliance = complianceScore(scoped);
+  const compliance = complianceScore(scoped, state.phrases, state.categories);
   const pulse = pulseRate(scoped);
 
   // Period comparison: most recent half vs previous half of the scoped history
@@ -45,7 +45,7 @@ export function AgentProfileView({ name, team, onNavigate }: { name: string; tea
     };
   }, [scoped]);
 
-  const cats = useMemo(() => categoryPerformance(scoped), [scoped]);
+  const cats = useMemo(() => categoryPerformance(scoped, state.phrases, state.categories), [scoped, state.phrases, state.categories]);
   const strengths = cats.filter((c) => c.rate >= 70 && c.done > 0);
   const weaknesses = cats.filter((c) => c.rate < 70).sort((a, b) => a.rate - b.rate);
 

@@ -25,9 +25,24 @@ export interface UserAccount {
   lastSeen?: number;
 }
 
-export interface ChecklistItem {
-  category: string;
-  phrase: string;
+/** A QA category (e.g. "Greeting", "Empathy"). Managers can add, rename and remove these. */
+export interface ChecklistCategory {
+  id: string;
+  name: string;
+}
+
+/**
+ * A single tickable phrase inside a category.
+ * - `keywords` drive the live speech assistant (auto-tick when spoken).
+ * - `alternatives` are acceptable variations agents can pick from the dropdown
+ *   when manual ticking is enabled — the box still ticks, the variation is recorded.
+ */
+export interface Phrase {
+  id: string;
+  categoryId: string;
+  text: string;
+  keywords: string[];
+  alternatives: string[];
 }
 
 export type EventType =
@@ -48,6 +63,10 @@ export interface TimelineEvent {
   type: EventType;
   label: string;
   detail: string;
+  /** how the moment was captured */
+  source?: "speech" | "manual";
+  /** the alternative phrasing the agent said (manual ticks) */
+  variant?: string;
   /** true when the moment represents a missed opportunity / coaching point */
   missed?: boolean;
 }
@@ -79,6 +98,7 @@ export interface EngagementRecord {
   score: number;
   pulseCompleted: boolean;
   dropped: boolean;
+  /** phrase ids (legacy records may contain category names) */
   checkedItems: string[];
   missedItems: string[];
   transcript?: string;
@@ -148,12 +168,19 @@ export interface AppSettings {
   theme: "light" | "dark";
   cloud: CloudSettings;
   sampleDataLoaded: boolean;
+  /**
+   * Manual ticking is OFF by default — phrases are captured automatically by the
+   * speech assistant. Only managers/admins can re-enable it (one click, global).
+   */
+  manualTickEnabled: boolean;
 }
 
 export interface AppState {
   session: Session | null;
   users: UserAccount[];
   teams: Team[];
+  categories: ChecklistCategory[];
+  phrases: Phrase[];
   records: EngagementRecord[];
   disputes: Dispute[];
   notes: CoachingNote[];

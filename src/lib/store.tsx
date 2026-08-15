@@ -2,16 +2,18 @@ import { createContext, useContext, useEffect, useMemo, useReducer, type ReactNo
 import type {
   AppState,
   AuditEntry,
+  ChecklistCategory,
   CoachingNote,
   Dispute,
   EngagementRecord,
+  Phrase,
   RecordDraft,
   Role,
   Team,
   UserAccount,
 } from "./types";
 import { firstAccountRole, initialState, uid, withSampleData } from "./seed";
-import { TOTAL_ITEMS } from "./checklist";
+import { DEFAULT_CATEGORIES, DEFAULT_PHRASES } from "./checklist";
 
 const STORAGE_KEY = "qe-platform-v2";
 
@@ -25,9 +27,17 @@ function loadState(): AppState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as AppState;
+      const parsed = JSON.parse(raw) as Partial<AppState>;
       if (parsed && parsed.users && parsed.teams && parsed.settings) {
-        return { ...initialState(), ...parsed, settings: { ...initialState().settings, ...parsed.settings } };
+        const base = initialState();
+        return {
+          ...base,
+          ...parsed,
+          // newer fields merged so old saved state keeps working
+          categories: parsed.categories?.length ? parsed.categories : base.categories,
+          phrases: parsed.phrases?.length ? parsed.phrases : base.phrases,
+          settings: { ...base.settings, ...parsed.settings },
+        };
       }
     }
   } catch {
@@ -57,9 +67,16 @@ type Action =
   | { type: "DELETE_TEAM"; id: string; actor: string }
   | { type: "SET_THEME"; theme: "light" | "dark" }
   | { type: "SET_CLOUD"; patch: Partial<AppState["settings"]["cloud"]> }
+  | { type: "SET_MANUAL_TICK"; enabled: boolean; actor: string }
+  | { type: "ADD_CATEGORY"; category: ChecklistCategory; actor: string }
+  | { type: "UPDATE_CATEGORY"; id: string; name: string; actor: string }
+  | { type: "DELETE_CATEGORY"; id: string; actor: string }
+  | { type: "ADD_PHRASE"; phrase: Phrase; actor: string }
+  | { type: "UPDATE_PHRASE"; id: string; patch: Partial<Phrase>; actor: string }
+  | { type: "DELETE_PHRASE"; id: string; actor: string }
   | { type: "LOAD_SAMPLE_DATA" }
   | { type: "IMPORT_RECORDS"; records: EngagementRecord[]; actor: string }
-  | { type: "RESTORE_BACKUP"; backup: { users: UserAccount[]; teams: Team[]; records: EngagementRecord[]; disputes: Dispute[]; notes: CoachingNote[]; audit: AuditEntry[] }; actor: string }
+  | { type: "RESTORE_BACKUP"; backup: { users: UserAccount[]; teams: Team[]; categories?: ChecklistCategory[]; phrases?: Phrase[]; records: EngagementRecord[]; disputes: Dispute[]; notes: CoachingNote[]; audit: AuditEntry[]; settings?: Partial<AppState["settings"]> }; actor: string }
   | { type: "RESET_ALL" };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -190,6 +207,58 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, settings: { ...state.settings, theme: action.theme } };
     case "SET_CLOUD":
       return { ...state, settings: { ...state.settings, cloud: { ...state.settings.cloud, ...action.patch } } };
+    case "SET_MANUAL_TICK": {
+      if (state.settings.manualTickEnabled === action.enabled) return state;
+      const entry = audit("manual_ticking_changed", "settings", action.actor, { manualTickEnabled: state.settings.manualTickEnabled }, { manualTickEnabled: action.enabled });
+      return { ...state, settings: { ...state.settings, manualTickEnabled: action.enabled }, audit: [entry, ...state.audit] };
+    }
+    case "ADD_CATEGORY": {
+      const entry = audit("category_created", "checklist", action.actor, undefined, { name: action.category.name }, action.category.id);
+      return { ...state, categories: [...state.categories, action.category], audit: [entry, ...state.audit] };
+    }
+    case "UPDATE_CATEGORY": {
+      const prev = state.categories.find((c) => c.id === action.id);
+      if (!prev) return state;
+      const updated = { ...prev, name: action.name };
+      const entry = audit("category_updated", "checklist", action.actor, { name: prev.name }, { name: action.name }, action.id);
+      return { ...state, categories: state.categories.map((c) => (c.id === action.id ? updated : c)), audit: [entry, ...state.audit] };
+    }
+    case "DELETE_CATEGORY": {
+      const prev = state.categories.find((c) => c.id === action.id);
+      if (!prev) return state;
+      const removedPhrases = state.phrases.filter((p) => p.categoryId === action.id);
+      const entry = audit(
+        "category_deleted",
+        "checklist",
+        action.actor,
+        { name: prev.name, phrases: removedPhrases.length },
+        undefined,
+        action.id,
+      );
+      return {
+        ...state,
+        categories: state.categories.filter((c) => c.id !== action.id),
+        phrases: state.phrases.filter((p) => p.categoryId !== action.id),
+        audit: [entry, ...state.audit],
+      };
+    }
+    case "ADD_PHRASE": {
+      const entry = audit("phrase_created", "checklist", action.actor, undefined, { text: action.phrase.text, categoryId: action.phrase.categoryId }, action.phrase.id);
+      return { ...state, phrases: [...state.phrases, action.phrase], audit: [entry, ...state.audit] };
+    }
+    case "UPDATE_PHRASE": {
+      const prev = state.phrases.find((p) => p.id === action.id);
+      if (!prev) return state;
+      const updated = { ...prev, ...action.patch };
+      const entry = audit("phrase_updated", "checklist", action.actor, { text: prev.text, keywords: prev.keywords, alternatives: prev.alternatives }, action.patch, action.id);
+      return { ...state, phrases: state.phrases.map((p) => (p.id === action.id ? updated : p)), audit: [entry, ...state.audit] };
+    }
+    case "DELETE_PHRASE": {
+      const prev = state.phrases.find((p) => p.id === action.id);
+      if (!prev) return state;
+      const entry = audit("phrase_deleted", "checklist", action.actor, { text: prev.text }, undefined, action.id);
+      return { ...state, phrases: state.phrases.filter((p) => p.id !== action.id), audit: [entry, ...state.audit] };
+    }
     case "LOAD_SAMPLE_DATA":
       return withSampleData(state);
     case "IMPORT_RECORDS": {
@@ -201,14 +270,18 @@ function reducer(state: AppState, action: Action): AppState {
         users: action.backup.users.length,
         records: action.backup.records.length,
       });
+      const base = initialState();
       return {
         ...state,
         users: action.backup.users,
         teams: action.backup.teams,
+        categories: action.backup.categories?.length ? action.backup.categories : state.categories,
+        phrases: action.backup.phrases?.length ? action.backup.phrases : state.phrases,
         records: action.backup.records,
         disputes: action.backup.disputes,
         notes: action.backup.notes,
         audit: [entry, ...action.backup.audit],
+        settings: action.backup.settings ? { ...base.settings, ...state.settings, ...action.backup.settings } : state.settings,
       };
     }
     case "RESET_ALL":
@@ -242,9 +315,16 @@ interface StoreValue {
     deleteTeam(id: string): void;
     setTheme(theme: "light" | "dark"): void;
     setCloud(patch: Partial<AppState["settings"]["cloud"]>): void;
+    setManualTick(enabled: boolean): void;
+    addCategory(name: string): void;
+    updateCategory(id: string, name: string): void;
+    deleteCategory(id: string): void;
+    addPhrase(categoryId: string, text: string, keywords: string[], alternatives: string[]): void;
+    updatePhrase(id: string, patch: Partial<Phrase>): void;
+    deletePhrase(id: string): void;
     loadSampleData(): void;
     importRecords(records: EngagementRecord[]): void;
-    restoreBackup(backup: { users: UserAccount[]; teams: Team[]; records: EngagementRecord[]; disputes: Dispute[]; notes: CoachingNote[]; audit: AuditEntry[] }): void;
+    restoreBackup(backup: { users: UserAccount[]; teams: Team[]; categories?: ChecklistCategory[]; phrases?: Phrase[]; records: EngagementRecord[]; disputes: Dispute[]; notes: CoachingNote[]; audit: AuditEntry[]; settings?: Partial<AppState["settings"]> }): void;
     resetAll(): void;
   };
 }
@@ -274,7 +354,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       saveEngagement(draft) {
         const checkedItems = [...draft.checkedItems];
         const missedItems = [...draft.missedItems];
-        const total = TOTAL_ITEMS;
+        const total = Math.max(state.phrases.length, 1);
         const completed = checkedItems.length;
         const score = Math.round((completed / total) * 100);
         const savedAt = Date.now();
@@ -360,6 +440,29 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setCloud(patch) {
         dispatch({ type: "SET_CLOUD", patch });
       },
+      setManualTick(enabled) {
+        dispatch({ type: "SET_MANUAL_TICK", enabled, actor });
+      },
+      addCategory(name) {
+        const category: ChecklistCategory = { id: uid(), name };
+        dispatch({ type: "ADD_CATEGORY", category, actor });
+      },
+      updateCategory(id, name) {
+        dispatch({ type: "UPDATE_CATEGORY", id, name, actor });
+      },
+      deleteCategory(id) {
+        dispatch({ type: "DELETE_CATEGORY", id, actor });
+      },
+      addPhrase(categoryId, text, keywords, alternatives) {
+        const phrase: Phrase = { id: uid(), categoryId, text, keywords, alternatives };
+        dispatch({ type: "ADD_PHRASE", phrase, actor });
+      },
+      updatePhrase(id, patch) {
+        dispatch({ type: "UPDATE_PHRASE", id, patch, actor });
+      },
+      deletePhrase(id) {
+        dispatch({ type: "DELETE_PHRASE", id, actor });
+      },
       loadSampleData() {
         dispatch({ type: "LOAD_SAMPLE_DATA" });
       },
@@ -392,3 +495,5 @@ export function useFirstAccountRole(): Role {
 }
 
 export type { Action };
+
+export { DEFAULT_CATEGORIES, DEFAULT_PHRASES };

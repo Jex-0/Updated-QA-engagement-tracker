@@ -1226,6 +1226,306 @@ tr.clickable {
   flex-wrap: wrap;
 }
 
+/* ============ Tracker: manual-tick gate & phrase picker ============ */
+
+.lock-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--info-soft, var(--surface-alt));
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+.lock-icon {
+  color: var(--accent);
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+.lock-card p {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+.lock-card strong {
+  color: var(--text);
+}
+
+.checklist-group {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.checklist-item.locked {
+  cursor: default;
+  opacity: 0.75;
+  background: var(--surface-alt);
+}
+.checklist-item.locked:hover {
+  border-color: var(--border);
+  box-shadow: none;
+}
+.checklist-item.locked .check-custom {
+  border-style: dashed;
+  color: var(--text-muted);
+  background: var(--surface);
+}
+.checklist-item.pickable {
+  padding: 0;
+  flex-direction: column;
+  gap: 0;
+  overflow: visible;
+}
+.item-picker {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+  padding: 13px 15px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+}
+.checklist-item.pickable .check-custom {
+  margin-top: 1px;
+}
+.picker-chevron {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  margin-top: 4px;
+  transition: transform 0.16s ease;
+}
+.item-picker[aria-expanded="true"] .picker-chevron {
+  transform: rotate(180deg);
+}
+.picker-menu {
+  border-top: 1px dashed var(--border);
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--surface-alt);
+  border-radius: 0 0 13px 13px;
+  width: 100%;
+}
+.picker-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0;
+}
+.picker-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  color: var(--text);
+  font: inherit;
+  transition: border-color 0.14s ease, background-color 0.14s ease;
+}
+.picker-option:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  background: var(--accent-soft);
+}
+.picker-option.standard svg {
+  color: var(--success);
+}
+.picker-option svg {
+  color: var(--accent);
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.picker-option > span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.picker-option strong {
+  font-size: 12.5px;
+}
+.picker-option small {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.source-chip {
+  font-style: normal;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-top: 2px;
+}
+.checklist-item.on.auto {
+  background: var(--success-soft);
+  border-color: color-mix(in srgb, var(--success) 45%, var(--border));
+}
+.checklist-item.on.manual {
+  background: var(--info-soft, var(--surface-alt));
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+.item-undo {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.mono {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============ Manager: checklist editor ============ */
+
+.toggle-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+.toggle-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.toggle-body {
+  flex: 1;
+}
+.toggle-body strong {
+  font-size: 14.5px;
+  color: var(--text);
+}
+.toggle-body p {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 3px 0 0;
+}
+.toggle-card .switch {
+  flex-shrink: 0;
+}
+
+.category-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.category-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  padding: 14px 16px;
+}
+.category-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.category-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text);
+  flex: 1;
+}
+.category-head .row-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+.category-empty {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  font-style: italic;
+  margin: 0 0 10px;
+}
+.phrase-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.phrase-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--surface-alt);
+  padding: 10px 12px;
+}
+.phrase-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.phrase-main strong {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.45;
+}
+.phrase-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+.phrase-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.phrase-row .row-actions {
+  display: inline-flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.table-hint {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 14px 2px 0;
+}
+
+/* ============ Manager: team leader overview ============ */
+
+.leader-table {
+  margin-top: 18px;
+}
+.block {
+  display: block;
+}
+.timeline-tags {
+  display: inline-flex;
+  gap: 6px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
 /* ============================ Auth ============================ */
 
 .auth-screen {

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { KEYWORD_MAP } from "../lib/checklist";
 
 interface SpeechRecognitionLike {
   continuous: boolean;
@@ -34,7 +33,14 @@ export interface UseSpeechResult {
   reset(): void;
 }
 
-export function useSpeech(onKeyword: (category: string) => void): UseSpeechResult {
+/**
+ * Live speech assistant. `keywordMap` maps phrase id → trigger phrases
+ * (built from the workspace checklist) so managers' edits apply instantly.
+ */
+export function useSpeech(
+  keywordMap: Record<string, string[]>,
+  onKeyword: (phraseId: string) => void,
+): UseSpeechResult {
   const [supported] = useState<boolean>(() => getSpeechAPI() != null);
   const [listening, setListening] = useState(false);
   const [transcript, setTranscript] = useState("");
@@ -45,10 +51,15 @@ export function useSpeech(onKeyword: (category: string) => void): UseSpeechResul
   const matchedRef = useRef<Set<string>>(new Set());
   const listeningRef = useRef(false);
   const onKeywordRef = useRef(onKeyword);
+  const mapRef = useRef(keywordMap);
 
   useEffect(() => {
     onKeywordRef.current = onKeyword;
   }, [onKeyword]);
+
+  useEffect(() => {
+    mapRef.current = keywordMap;
+  }, [keywordMap]);
 
   const stop = useCallback(() => {
     listeningRef.current = false;
@@ -79,11 +90,11 @@ export function useSpeech(onKeyword: (category: string) => void): UseSpeechResul
           if (e.results[i].isFinal) {
             fullRef.current += " " + chunk;
             const lower = fullRef.current.toLowerCase();
-            for (const [category, phrases] of Object.entries(KEYWORD_MAP)) {
-              if (matchedRef.current.has(category)) continue;
-              if (phrases.some((p) => lower.includes(p))) {
-                matchedRef.current.add(category);
-                onKeywordRef.current(category);
+            for (const [phraseId, triggers] of Object.entries(mapRef.current)) {
+              if (matchedRef.current.has(phraseId)) continue;
+              if (triggers.some((p) => lower.includes(p))) {
+                matchedRef.current.add(phraseId);
+                onKeywordRef.current(phraseId);
               }
             }
           } else {

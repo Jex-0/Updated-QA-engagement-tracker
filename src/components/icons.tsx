@@ -277,6 +277,12 @@ const PATHS: Record<string, JSX.Element> = {
       <path d="M3 14v-3a9 9 0 0 1 18 0v3" />
     </>
   ),
+  lock: (
+    <>
+      <rect width="18" height="11" x="3" y="11" rx="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </>
+  ),
   scale: (
     <>
       <path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />

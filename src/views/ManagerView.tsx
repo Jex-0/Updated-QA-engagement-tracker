@@ -3,10 +3,12 @@ import { useStore } from "../lib/store";
 import { Badge, Button, Card, CardHeader, EmptyState, Field, Input, Modal, ScoreBadge, Select, Tabs, Textarea, useToast } from "../components/ui";
 import { Icon } from "../components/icons";
 import { effectiveScore, fmtDateTime } from "../lib/format";
+import { ManagerLeaders } from "./ManagerLeaders";
+import { ManagerChecklist } from "./ManagerChecklist";
 import type { Dispute } from "../lib/types";
 import type { Route } from "../lib/router";
 
-type Tab = "engagements" | "disputes" | "audit";
+type Tab = "leaders" | "engagements" | "disputes" | "checklist" | "audit";
 
 export function ManagerView({ onNavigate }: { onNavigate: (r: Route) => void }) {
   const { state, actions } = useStore();
@@ -58,13 +60,18 @@ export function ManagerView({ onNavigate }: { onNavigate: (r: Route) => void }) 
     <div className="manager-page">
       <Tabs
         tabs={[
+          { id: "leaders", label: "Team leaders", icon: "users" },
           { id: "engagements", label: "Engagements", icon: "fileText" },
           { id: "disputes", label: "Disputes", icon: "flag", count: openCount },
+          { id: "checklist", label: "Phrases", icon: "checklist" },
           { id: "audit", label: "Audit log", icon: "shield" },
         ]}
         active={tab}
         onChange={setTab}
       />
+
+      {tab === "leaders" ? <ManagerLeaders onNavigate={onNavigate} /> : null}
+      {tab === "checklist" ? <ManagerChecklist /> : null}
 
       {tab === "engagements" ? (
         <Card>

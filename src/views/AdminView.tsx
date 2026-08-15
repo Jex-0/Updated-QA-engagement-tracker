@@ -42,10 +42,13 @@ export function AdminView() {
     const backup: Partial<AppState> = {
       users: state.users,
       teams: state.teams,
+      categories: state.categories,
+      phrases: state.phrases,
       records: state.records,
       disputes: state.disputes,
       notes: state.notes,
       audit: state.audit,
+      settings: { ...state.settings },
     };
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -66,10 +69,13 @@ export function AdminView() {
         actions.restoreBackup({
           users: data.users,
           teams: data.teams,
+          categories: data.categories,
+          phrases: data.phrases,
           records: data.records,
           disputes: data.disputes ?? [],
           notes: data.notes ?? [],
           audit: data.audit ?? [],
+          settings: data.settings,
         });
         toast.push("Backup restored");
       } catch {

@@ -1,5 +1,5 @@
 import type { AppState, EngagementRecord, Role, Team, UserAccount } from "./types";
-import { ENGAGEMENT_ITEMS } from "./checklist";
+import { DEFAULT_CATEGORIES, DEFAULT_PHRASES } from "./checklist";
 
 export const DEFAULT_TEAMS: Team[] = Array.from({ length: 12 }, (_, i) => ({
   id: `ccs${String(i + 1).padStart(2, "0")}`,
@@ -35,6 +35,8 @@ export function initialState(): AppState {
     session: null,
     users: [admin],
     teams: DEFAULT_TEAMS,
+    categories: DEFAULT_CATEGORIES.map((c) => ({ ...c })),
+    phrases: DEFAULT_PHRASES.map((p) => ({ ...p, keywords: [...p.keywords], alternatives: [...p.alternatives] })),
     records: [],
     disputes: [],
     notes: [],
@@ -45,10 +47,15 @@ export function initialState(): AppState {
         actor: "system",
         action: "platform_initialised",
         entity: "platform",
-        newValue: { version: "2.0.0", note: "First account (or seeded admin) owns role management." },
+        newValue: { version: "2.1.0", note: "Editable checklist, timestamped timeline, team-leader overview. Manual ticking is off until a manager enables it." },
       },
     ],
-    settings: { theme: "light", cloud: { firebaseConfig: null, connected: false }, sampleDataLoaded: false },
+    settings: {
+      theme: "light",
+      cloud: { firebaseConfig: null, connected: false },
+      sampleDataLoaded: false,
+      manualTickEnabled: false,
+    },
   };
 }
 
@@ -66,11 +73,11 @@ const SAMPLE_AGENTS: { name: string; team: string }[] = [
 ];
 
 function pickChecked(): string[] {
-  const pool = [...ENGAGEMENT_ITEMS];
+  const pool = [...DEFAULT_PHRASES];
   const out: string[] = [];
-  const count = 5 + Math.floor(Math.random() * 7); // 5..11 of 11
+  const count = 5 + Math.floor(Math.random() * (DEFAULT_PHRASES.length - 4)); // 5..all
   for (let i = 0; i < count && pool.length; i++) {
-    out.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0].category);
+    out.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0].id);
   }
   return out;
 }
@@ -84,8 +91,8 @@ function makeSampleRecords(): EngagementRecord[] {
       const dayOffset = 13 - i;
       const savedAt = now - dayOffset * 86_400_000 - Math.floor(Math.random() * 5_000_000);
       const checked = pickChecked();
-      const missed = ENGAGEMENT_ITEMS.filter((it) => !checked.includes(it.category)).map((it) => it.category);
-      const base = Math.round((checked.length / ENGAGEMENT_ITEMS.length) * 100);
+      const missed = DEFAULT_PHRASES.filter((p) => !checked.includes(p.id)).map((p) => p.id);
+      const base = Math.round((checked.length / DEFAULT_PHRASES.length) * 100);
       const drift = Math.round((Math.random() - 0.45) * 12);
       const score = Math.max(18, Math.min(100, Math.round(base * (0.55 + streak * 0.45) + drift)));
       const d = new Date(savedAt);
@@ -97,7 +104,7 @@ function makeSampleRecords(): EngagementRecord[] {
         isoDate: d.toISOString().slice(0, 10),
         savedAt,
         completed: checked.length,
-        total: ENGAGEMENT_ITEMS.length,
+        total: DEFAULT_PHRASES.length,
         score,
         pulseCompleted: Math.random() > 0.35,
         dropped: Math.random() < 0.08,
