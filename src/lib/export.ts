@@ -1,6 +1,6 @@
 import type { ChecklistCategory, EngagementRecord, Phrase } from "./types";
 import { COMPLIANCE_CATEGORIES, effectiveScore } from "./format";
-import { resolvePhrase } from "./checklist";
+import { categoryNameOf, resolvePhrase } from "./checklist";
 
 /** Guard spreadsheet cells against formula injection (starts with = + - @). */
 function safeCell(value: string | number | boolean): string {
@@ -99,7 +99,7 @@ export function agentSummaryRows(records: EngagementRecord[]): { headers: string
 }
 
 export function complianceRows(records: EngagementRecord[], phrases: Phrase[], categories: ChecklistCategory[]): { headers: string[]; keys: string[]; rows: ReportRow[] } {
-  const categoryOf = (id: string) => resolvePhrase(categories, phrases, id)?.categoryId ?? id;
+  const categoryOf = (id: string) => categoryNameOf(categories, phrases, id);
   const rows: ReportRow[] = records.map((r) => {
     const complianceItems = r.checkedItems.filter((c) => COMPLIANCE_CATEGORIES.has(categoryOf(c)));
     const complianceMissed = r.missedItems.filter((c) => COMPLIANCE_CATEGORIES.has(categoryOf(c)));

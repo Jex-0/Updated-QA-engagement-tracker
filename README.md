@@ -20,6 +20,9 @@ npm install        # install
 npm run dev        # dev server (0.0.0.0, port from $PORT or 5173)
 npm run build      # production build → dist/
 npm run typecheck  # tsc -b --noEmit
+npm test           # unit tests (vitest)
+npm run test:watch # unit tests in watch mode
+npm run test:coverage # unit tests + coverage report for src/lib
 ```
 
 ## Quick start
@@ -30,6 +33,10 @@ npm run typecheck  # tsc -b --noEmit
    - **Team leaders** — overview of leader stats.
    - **Phrases** — edit the checklist (categories, phrases, speech keywords, alternative phrasings) and toggle **manual ticking** for everyone.
 4. Sign in as an **agent** → My Tracker: start the speech assistant and watch phrases tick automatically with timestamps. If your manager has enabled manual ticking, tap a phrase to pick the variation that was said.
+
+## Deployment (GitHub Pages)
+
+The app is a Vite build, so GitHub cannot serve it from the source files — it must be built first. `.github/workflows/pages.yml` builds `dist/` and publishes it on every push to `main`. Enable it once in **Settings → Pages → Build and deployment → Source: GitHub Actions**; the live URL is then `https://<owner>.github.io/<repo>/`.
 
 ## Documentation
 
