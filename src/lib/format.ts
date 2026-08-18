@@ -1,5 +1,5 @@
 import type { ChecklistCategory, EngagementRecord, Phrase } from "./types";
-import { resolvePhrase } from "./checklist";
+import { categoryNameOf, resolvePhrase } from "./checklist";
 
 export function fmtDate(ts: number): string {
   return new Date(ts).toLocaleDateString("en-ZA", { day: "2-digit", month: "short", year: "numeric" });
@@ -117,10 +117,14 @@ export function complianceScore(
   if (!records.length) return 0;
   let done = 0;
   let total = 0;
-  const categoryOf = (id: string) => resolvePhrase(categories, phrases, id)?.categoryId ?? id;
+  const categoryOf = (id: string) => categoryNameOf(categories, phrases, id);
   for (const r of records) {
-    for (const c of r.checkedItems) if (COMPLIANCE_CATEGORIES.has(categoryOf(c))) done++;
-    for (const c of r.checkedItems) if (COMPLIANCE_CATEGORIES.has(categoryOf(c))) total++;
+    for (const c of r.checkedItems) {
+      if (COMPLIANCE_CATEGORIES.has(categoryOf(c))) {
+        done++;
+        total++;
+      }
+    }
     for (const c of r.missedItems) if (COMPLIANCE_CATEGORIES.has(categoryOf(c))) total++;
   }
   return total ? Math.round((done / total) * 100) : 0;

@@ -20,6 +20,9 @@ npm install        # install
 npm run dev        # dev server (0.0.0.0, port from $PORT or 5173)
 npm run build      # production build → dist/
 npm run typecheck  # tsc -b --noEmit
+npm test           # unit tests (vitest)
+npm run test:watch # unit tests in watch mode
+npm run test:coverage # unit tests + coverage report for src/lib
 ```
 
 ## Quick start
