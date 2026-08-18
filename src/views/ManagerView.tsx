@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import { useStore } from "../lib/store";
-import { Badge, Button, Card, CardHeader, EmptyState, Field, Input, Modal, ScoreBadge, Select, Tabs, Textarea, useToast } from "../components/ui";
+import { Badge, Button, Card, CardHeader, EmptyState, EngagementStatusBadge, Field, Input, Modal, ScoreBadge, Select, Tabs, Textarea, useToast } from "../components/ui";
 import { Icon } from "../components/icons";
-import { effectiveScore, fmtDateTime } from "../lib/format";
+import { effectiveScore, fmtDateTime, yesNo } from "../lib/format";
+import { agentNames, filterRecords, sortedByDate } from "../lib/records";
 import { ManagerLeaders } from "./ManagerLeaders";
 import { ManagerChecklist } from "./ManagerChecklist";
 import type { Dispute } from "../lib/types";
@@ -23,19 +24,10 @@ export function ManagerView({ onNavigate }: { onNavigate: (r: Route) => void }) 
   const [resolution, setResolution] = useState("");
   const [adjusted, setAdjusted] = useState("");
 
-  const agents = useMemo(() => {
-    const set = new Set(state.records.map((r) => r.userName));
-    return [...set].sort();
-  }, [state.records]);
+  const agents = useMemo(() => agentNames(state.records), [state.records]);
 
   const engagements = useMemo(
-    () =>
-      state.records
-        .filter((r) => team === "all" || r.team === team)
-        .filter((r) => agent === "all" || r.userName === agent)
-        .filter((r) => status === "all" || r.status === status)
-        .filter((r) => !query || `${r.userName} ${r.team}`.toLowerCase().includes(query.toLowerCase()))
-        .sort((a, b) => b.savedAt - a.savedAt),
+    () => sortedByDate(filterRecords(state.records, { team, agent, status, query })),
     [state.records, team, agent, status, query],
   );
 
@@ -126,10 +118,8 @@ export function ManagerView({ onNavigate }: { onNavigate: (r: Route) => void }) 
                         <ScoreBadge score={effectiveScore(r)} />
                         {r.corrected ? <span className="corrected-mark" title={`Corrected by ${r.corrected.by}`}> ✎</span> : null}
                       </td>
-                      <td>{r.pulseCompleted ? "Yes" : "No"}</td>
-                      <td>
-                        {r.status === "archived" ? <Badge tone="neutral">Archived</Badge> : r.dropped ? <Badge tone="warning">Dropped</Badge> : <Badge tone="success">Active</Badge>}
-                      </td>
+                      <td>{yesNo(r.pulseCompleted)}</td>
+                      <td><EngagementStatusBadge record={r} activeLabel="Active" /></td>
                       <td>
                         <div className="row-actions">
                           <button type="button" className="icon-btn" title="Open engagement" onClick={() => onNavigate({ name: "engagement", params: { id: r.id } })}>

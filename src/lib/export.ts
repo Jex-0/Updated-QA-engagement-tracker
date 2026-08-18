@@ -1,6 +1,8 @@
 import type { ChecklistCategory, EngagementRecord, Phrase } from "./types";
-import { COMPLIANCE_CATEGORIES, effectiveScore } from "./format";
-import { categoryNameOf, resolvePhrase } from "./checklist";
+import { avg, complianceBreakdown, complianceScore, effectiveScore, pulseRate, yesNo } from "./format";
+import { resolvePhrase } from "./checklist";
+import { downloadFile } from "./download";
+import { agentKey, averageScore, groupBy, lastReviewAt, scoresOf, splitAgentKey } from "./records";
 
 /** Guard spreadsheet cells against formula injection (starts with = + - @). */
 function safeCell(value: string | number | boolean): string {
@@ -14,20 +16,22 @@ function csvEscape(value: string | number | boolean): string {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-function download(filename: string, content: string, mime: string) {
-  const blob = new Blob([content], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
 export type ReportKind = "engagements" | "agents" | "compliance" | "team";
 
 export interface ReportRow {
   [key: string]: string | number | boolean;
+}
+
+/** A report as both keyed rows (CSV) and ordered columns (print). */
+export interface ReportTable {
+  headers: string[];
+  keys: string[];
+  rows: ReportRow[];
+}
+
+/** Ordered cell matrix for a table, matching the header order. */
+export function tableMatrix(table: ReportTable): (string | number | boolean)[][] {
+  return table.rows.map((row) => table.keys.map((k) => row[k] ?? ""));
 }
 
 export function exportCSV(filename: string, headers: string[], rows: ReportRow[], keyOrder: string[]) {
@@ -35,10 +39,14 @@ export function exportCSV(filename: string, headers: string[], rows: ReportRow[]
   for (const row of rows) {
     lines.push(keyOrder.map((k) => csvEscape(row[k] ?? "")).join(","));
   }
-  download(filename, lines.join("\n"), "text/csv;charset=utf-8");
+  downloadFile(filename, lines.join("\n"), "text/csv;charset=utf-8");
 }
 
-export function engagementsToRows(records: EngagementRecord[], phrases: Phrase[], categories: ChecklistCategory[]): { headers: string[]; keys: string[]; rows: ReportRow[] } {
+export function exportTableCSV(filename: string, table: ReportTable) {
+  exportCSV(filename, table.headers, table.rows, table.keys);
+}
+
+export function engagementsToRows(records: EngagementRecord[], phrases: Phrase[], categories: ChecklistCategory[]): ReportTable {
   const label = (id: string) => resolvePhrase(categories, phrases, id)?.text ?? id;
   const headers = [
     "Agent Name",
@@ -63,8 +71,8 @@ export function engagementsToRows(records: EngagementRecord[], phrases: Phrase[]
     corrected: r.corrected ? effectiveScore(r) : "",
     completed: r.completed,
     total: r.total,
-    pulseCompleted: r.pulseCompleted ? "Yes" : "No",
-    dropped: r.dropped ? "Yes" : "No",
+    pulseCompleted: yesNo(r.pulseCompleted),
+    dropped: yesNo(r.dropped),
     status: r.status,
     checkedItems: r.checkedItems.map(label).join("; "),
     missedItems: r.missedItems.map(label).join("; "),
@@ -72,49 +80,99 @@ export function engagementsToRows(records: EngagementRecord[], phrases: Phrase[]
   return { headers, keys, rows };
 }
 
-export function agentSummaryRows(records: EngagementRecord[]): { headers: string[]; keys: string[]; rows: ReportRow[] } {
-  const byAgent = new Map<string, EngagementRecord[]>();
-  for (const r of records) {
-    const key = `${r.userName}|${r.team}`;
-    byAgent.set(key, [...(byAgent.get(key) || []), r]);
-  }
-  const rows: ReportRow[] = [...byAgent.entries()].map(([key, list]) => {
-    const [userName, team] = key.split("|");
-    const scores = list.map((r) => effectiveScore(r));
-    const avg = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+export function agentSummaryRows(records: EngagementRecord[]): ReportTable {
+  const rows: ReportRow[] = [...groupBy(records, agentKey).entries()].map(([key, list]) => {
+    const { name, team } = splitAgentKey(key);
+    const scores = scoresOf(list);
+    const reviewedAt = lastReviewAt(list);
     return {
-      agent: userName,
+      agent: name,
       team,
       engagements: list.length,
-      avgScore: avg,
+      avgScore: avg(scores),
       best: Math.max(...scores),
       worst: Math.min(...scores),
-      pulseRate: Math.round((list.filter((r) => r.pulseCompleted).length / list.length) * 100),
+      pulseRate: pulseRate(list),
       dropped: list.filter((r) => r.dropped).length,
-      lastReview: list.find((r) => r.reviewed) ? new Date(Math.max(...list.filter((r) => r.reviewed).map((r) => r.reviewed!.at))).toLocaleDateString("en-ZA") : "Never",
+      lastReview: reviewedAt ? new Date(reviewedAt).toLocaleDateString("en-ZA") : "Never",
     };
   });
   rows.sort((a, b) => Number(b.avgScore) - Number(a.avgScore));
   return { headers: ["Agent", "Team", "Engagements", "Avg Score", "Best", "Worst", "Pulse Rate %", "Dropped", "Last Review"], keys: ["agent", "team", "engagements", "avgScore", "best", "worst", "pulseRate", "dropped", "lastReview"], rows };
 }
 
-export function complianceRows(records: EngagementRecord[], phrases: Phrase[], categories: ChecklistCategory[]): { headers: string[]; keys: string[]; rows: ReportRow[] } {
-  const categoryOf = (id: string) => categoryNameOf(categories, phrases, id);
+export function complianceRows(records: EngagementRecord[], phrases: Phrase[], categories: ChecklistCategory[]): ReportTable {
   const rows: ReportRow[] = records.map((r) => {
-    const complianceItems = r.checkedItems.filter((c) => COMPLIANCE_CATEGORIES.has(categoryOf(c)));
-    const complianceMissed = r.missedItems.filter((c) => COMPLIANCE_CATEGORIES.has(categoryOf(c)));
-    const done = complianceItems.length;
-    const total = done + complianceMissed.length;
+    const { compliant, nonCompliant, score } = complianceBreakdown(r, phrases, categories);
     return {
       agent: r.userName,
       team: r.team,
       date: r.isoDate,
-      complianceScore: total ? Math.round((done / total) * 100) : "",
-      compliant: complianceItems.join("; "),
-      nonCompliant: complianceMissed.join("; "),
+      complianceScore: score ?? "",
+      compliant: compliant.join("; "),
+      nonCompliant: nonCompliant.join("; "),
     };
   });
   return { headers: ["Agent", "Team", "Date", "Compliance Score", "Compliant Steps", "Non-Compliant Steps"], keys: ["agent", "team", "date", "complianceScore", "compliant", "nonCompliant"], rows };
+}
+
+/** Per-team averages, ranked by average score. */
+export function teamSummaryRows(
+  records: EngagementRecord[],
+  phrases: Phrase[],
+  categories: ChecklistCategory[],
+): ReportTable {
+  const rows: ReportRow[] = [...groupBy(records, (r) => r.team).entries()]
+    .map(([team, list]) => ({
+      team,
+      engagements: list.length,
+      avgScore: `${averageScore(list)}%`,
+      compliance: `${complianceScore(list, phrases, categories)}%`,
+      pulse: `${pulseRate(list)}%`,
+    }))
+    .sort((a, b) => averageOf(b) - averageOf(a));
+  return {
+    headers: ["Team", "Engagements", "Avg score", "Compliance", "Pulse rate"],
+    keys: ["team", "engagements", "avgScore", "compliance", "pulse"],
+    rows,
+  };
+}
+
+function averageOf(row: ReportRow): number {
+  return Number(String(row.avgScore).replace("%", ""));
+}
+
+export const REPORT_TITLES: Record<ReportKind, string> = {
+  engagements: "Engagement report",
+  agents: "Agent comparison report",
+  compliance: "Compliance report",
+  team: "Team performance report",
+};
+
+export const REPORT_FILE_PREFIX: Record<ReportKind, string> = {
+  engagements: "Engagements",
+  agents: "Agents",
+  compliance: "Compliance",
+  team: "TeamPerformance",
+};
+
+/** The one place a report kind is turned into data — used for both CSV and print. */
+export function reportTable(
+  kind: ReportKind,
+  records: EngagementRecord[],
+  phrases: Phrase[],
+  categories: ChecklistCategory[],
+): ReportTable {
+  switch (kind) {
+    case "engagements":
+      return engagementsToRows(records, phrases, categories);
+    case "compliance":
+      return complianceRows(records, phrases, categories);
+    case "agents":
+      return agentSummaryRows(records);
+    case "team":
+      return teamSummaryRows(records, phrases, categories);
+  }
 }
 
 export function printReport(title: string, subtitle: string, blocks: { heading: string; headers: string[]; rows: (string | number | boolean)[][] }[]) {

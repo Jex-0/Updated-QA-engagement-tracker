@@ -2,10 +2,8 @@ import { useMemo, useState } from "react";
 import { useStore } from "../lib/store";
 import { Button, Card, CardHeader, EmptyState, Select, StatCard } from "../components/ui";
 import { Icon } from "../components/icons";
-import { agentSummaryRows, complianceRows, engagementsToRows, exportCSV, printReport, type ReportKind } from "../lib/export";
-import { avg, complianceScore, effectiveScore, pulseRate } from "../lib/format";
-
-type Range = "7" | "30" | "90" | "all";
+import { exportTableCSV, printReport, REPORT_FILE_PREFIX, REPORT_TITLES, reportTable, tableMatrix, type ReportKind } from "../lib/export";
+import { filterRecords, isoDay, rangeCutoff, summarise, type DayRange } from "../lib/records";
 
 const KINDS: { id: ReportKind; label: string; icon: "users" | "chart" | "shield" | "fileText" }[] = [
   { id: "team", label: "Team performance", icon: "users" },
@@ -17,68 +15,24 @@ const KINDS: { id: ReportKind; label: string; icon: "users" | "chart" | "shield"
 export function ReportsView() {
   const { state } = useStore();
   const [kind, setKind] = useState<ReportKind>("team");
-  const [range, setRange] = useState<Range>("30");
+  const [range, setRange] = useState<DayRange>("30");
   const [team, setTeam] = useState("all");
 
-  const cutoff = range === "all" ? 0 : Date.now() - Number(range) * 86_400_000;
+  const cutoff = rangeCutoff(range);
   const scoped = useMemo(
-    () =>
-      state.records
-        .filter((r) => r.status === "active")
-        .filter((r) => r.savedAt >= cutoff)
-        .filter((r) => team === "all" || r.team === team),
+    () => filterRecords(state.records, { status: "active", since: cutoff, team }),
     [state.records, cutoff, team],
   );
 
-  const stats = useMemo(() => {
-    const scores = scoped.map((r) => effectiveScore(r));
-    const agents = new Set(scoped.map((r) => `${r.userName}|${r.team}`)).size;
-    return { engagements: scoped.length, agents, avg: avg(scores), compliance: complianceScore(scoped, state.phrases, state.categories), pulse: pulseRate(scoped) };
-  }, [scoped, state.phrases, state.categories]);
+  const stats = useMemo(() => summarise(scoped, state.phrases, state.categories), [scoped, state.phrases, state.categories]);
+  const table = useMemo(() => reportTable(kind, scoped, state.phrases, state.categories), [kind, scoped, state.phrases, state.categories]);
 
   const rangeLabel = range === "all" ? "All time" : `Last ${range} days`;
   const teamLabel = team === "all" ? "All teams" : team;
 
-  const buildBlocks = () => {
-    if (kind === "engagements") {
-      const { headers, keys, rows } = engagementsToRows(scoped, state.phrases, state.categories);
-      return [{ heading: "Engagement report", headers, rows: rows.map((r) => keys.map((k) => r[k])) }];
-    }
-    if (kind === "compliance") {
-      const { headers, keys, rows } = complianceRows(scoped, state.phrases, state.categories);
-      return [{ heading: "Compliance report", headers, rows: rows.map((r) => keys.map((k) => r[k])) }];
-    }
-    if (kind === "agents") {
-      const { headers, keys, rows } = agentSummaryRows(scoped);
-      return [{ heading: "Agent comparison report", headers, rows: rows.map((r) => keys.map((k) => r[k])) }];
-    }
-    // team performance: aggregate by team
-    const byTeam = new Map<string, number[]>();
-    for (const r of scoped) byTeam.set(r.team, [...(byTeam.get(r.team) || []), effectiveScore(r)]);
-    const headers = ["Team", "Engagements", "Avg score", "Compliance", "Pulse rate"];
-    const rows = [...byTeam.entries()]
-      .map(([t, scores]) => [t, scores.length, `${avg(scores)}%`, `${complianceScore(scoped.filter((r) => r.team === t), state.phrases, state.categories)}%`, `${pulseRate(scoped.filter((r) => r.team === t))}%`])
-      .sort((a, b) => Number(String(b[2]).replace("%", "")) - Number(String(a[2]).replace("%", "")));
-    return [{ heading: "Team performance report", headers, rows }];
-  };
-
   const doCSV = () => {
     if (!scoped.length) return;
-    const stamp = new Date().toISOString().slice(0, 10);
-    if (kind === "engagements") {
-      const { headers, keys, rows } = engagementsToRows(scoped, state.phrases, state.categories);
-      exportCSV(`Engagements_${stamp}.csv`, headers, rows, keys);
-    } else if (kind === "compliance") {
-      const { headers, keys, rows } = complianceRows(scoped, state.phrases, state.categories);
-      exportCSV(`Compliance_${stamp}.csv`, headers, rows, keys);
-    } else if (kind === "agents") {
-      const { headers, keys, rows } = agentSummaryRows(scoped);
-      exportCSV(`Agents_${stamp}.csv`, headers, rows, keys);
-    } else {
-      const blocks = buildBlocks();
-      const rows = blocks[0].rows.map((r) => r.reduce<Record<string, string | number | boolean>>((acc, v, i) => ({ ...acc, [blocks[0].headers[i]]: v }), {}));
-      exportCSV(`TeamPerformance_${stamp}.csv`, blocks[0].headers, rows, blocks[0].headers);
-    }
+    exportTableCSV(`${REPORT_FILE_PREFIX[kind]}_${isoDay(Date.now())}.csv`, table);
   };
 
   const doPDF = () => {
@@ -86,7 +40,7 @@ export function ReportsView() {
     printReport(
       `${KINDS.find((k) => k.id === kind)?.label ?? "Report"} — Client Engagement Tracker`,
       `${teamLabel} · ${rangeLabel} · ${scoped.length} engagements`,
-      buildBlocks(),
+      [{ heading: REPORT_TITLES[kind], headers: table.headers, rows: tableMatrix(table) }],
     );
   };
 
@@ -104,7 +58,7 @@ export function ReportsView() {
             ))}
           </div>
           <div className="filter-row">
-            <Select value={range} onChange={(e) => setRange(e.target.value as Range)} aria-label="Period">
+            <Select value={range} onChange={(e) => setRange(e.target.value as DayRange)} aria-label="Period">
               <option value="7">Last 7 days</option>
               <option value="30">Last 30 days</option>
               <option value="90">Last 90 days</option>
@@ -121,7 +75,7 @@ export function ReportsView() {
       <div className="stat-grid-4">
         <StatCard icon="fileText" label="Engagements" value={stats.engagements} sub={rangeLabel} />
         <StatCard icon="users" label="Agents" value={stats.agents} sub={teamLabel} tone="info" />
-        <StatCard icon="star" label="Average score" value={`${stats.avg}%`} tone="success" />
+        <StatCard icon="star" label="Average score" value={`${stats.avgScore}%`} tone="success" />
         <StatCard icon="shield" label="Compliance" value={`${stats.compliance}%`} sub={`Pulse ${stats.pulse}%`} tone="warning" />
       </div>
 
@@ -145,11 +99,11 @@ export function ReportsView() {
             <table className="data-table">
               <thead>
                 <tr>
-                  {buildBlocks()[0].headers.map((h) => <th key={h}>{h}</th>)}
+                  {table.headers.map((h) => <th key={h}>{h}</th>)}
                 </tr>
               </thead>
               <tbody>
-                {buildBlocks()[0].rows.slice(0, 25).map((r, i) => (
+                {tableMatrix(table).slice(0, 25).map((r, i) => (
                   <tr key={i}>{r.map((c, j) => <td key={j}>{c}</td>)}</tr>
                 ))}
               </tbody>

@@ -4,6 +4,8 @@ import { Avatar, Badge, Button, Card, CardHeader, Field, Input, Modal, Select, T
 import { ROLE_LABEL, type Role } from "../lib/types";
 import { Icon } from "../components/icons";
 import { fmtDate } from "../lib/format";
+import { downloadJSON } from "../lib/download";
+import { isoDay } from "../lib/records";
 import type { AppState } from "../lib/types";
 
 type Tab = "users" | "teams" | "data";
@@ -50,13 +52,7 @@ export function AdminView() {
       audit: state.audit,
       settings: { ...state.settings },
     };
-    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `engagement-tracker-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadJSON(`engagement-tracker-backup-${isoDay(Date.now())}.json`, backup);
     toast.push("Backup downloaded");
   };
 

@@ -3,7 +3,8 @@ import { useStore } from "../lib/store";
 import { Badge, Button, Card, CardHeader, EmptyState, Field, Input, Modal, ScoreBadge, Select, Textarea, useToast, type BadgeTone } from "../components/ui";
 import { Icon } from "../components/icons";
 import { buildTimelineForRecord, coachingRecommendations } from "../lib/timeline";
-import { avg, complianceScore, effectiveScore, fmtDateTime, fmtTime } from "../lib/format";
+import { COMPLIANCE_CATEGORIES, complianceScore, effectiveScore, fmtDateTime, fmtTime } from "../lib/format";
+import { averageScore, filterRecords, scoresOf } from "../lib/records";
 import { resolveCategoryLabel } from "../lib/checklist";
 import type { EventType, TimelineEvent } from "../lib/types";
 import type { Route } from "../lib/router";
@@ -65,18 +66,21 @@ export function EngagementView({ id, onNavigate }: { id: string; onNavigate: (r:
   }, [timeline, filter, search]);
 
   const agentOther = useMemo(
-    () => (record ? state.records.filter((r) => r.userName === record.userName && r.team === record.team && r.id !== record.id && r.status === "active") : []),
+    () =>
+      record
+        ? filterRecords(state.records, { status: "active", agent: record.userName, team: record.team }).filter((r) => r.id !== record.id)
+        : [],
     [record, state.records],
   );
-  const peerAvg = avg(agentOther.map((r) => effectiveScore(r)));
-  const peerBest = agentOther.length ? Math.max(...agentOther.map((r) => effectiveScore(r))) : 0;
+  const peerAvg = averageScore(agentOther);
+  const peerBest = agentOther.length ? Math.max(...scoresOf(agentOther)) : 0;
   const teamCompliance = useMemo(
-    () => complianceScore(state.records.filter((r) => r.status === "active"), state.phrases, state.categories),
+    () => complianceScore(filterRecords(state.records, { status: "active" }), state.phrases, state.categories),
     [state.records, state.phrases, state.categories],
   );
   const recordCompliance = useMemo(() => {
     if (!record) return 0;
-    const comp = state.phrases.filter((p) => ["Verification", "Keeping Client Informed", "Recap_and_Summarise", "Call Closing"].includes(resolveCategoryLabel(state.categories, state.phrases, p.id)));
+    const comp = state.phrases.filter((p) => COMPLIANCE_CATEGORIES.has(resolveCategoryLabel(state.categories, state.phrases, p.id)));
     const done = comp.filter((c) => record!.checkedItems.includes(c.id)).length;
     return comp.length ? Math.round((done / comp.length) * 100) : 0;
   }, [record, state.phrases, state.categories]);

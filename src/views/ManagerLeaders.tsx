@@ -3,7 +3,8 @@ import { useStore } from "../lib/store";
 import { Badge, Card, CardHeader, EmptyState, ScoreBadge } from "../components/ui";
 import { Icon } from "../components/icons";
 import { Bars, TrendBadge } from "../components/charts";
-import { avg, complianceScore, effectiveScore, pulseRate } from "../lib/format";
+import { complianceScore, pulseRate } from "../lib/format";
+import { averageScore, DAY_MS, filterRecords, summarise } from "../lib/records";
 import type { Route } from "../lib/router";
 
 export function ManagerLeaders({ onNavigate }: { onNavigate: (r: Route) => void }) {
@@ -13,25 +14,23 @@ export function ManagerLeaders({ onNavigate }: { onNavigate: (r: Route) => void 
   const rows = useMemo(() => {
     const leaders = state.users.filter((u) => u.role === "leader");
     const now = Date.now();
-    const week = 7 * 86_400_000;
+    const week = 7 * DAY_MS;
     return leaders.map((leader) => {
-      const teamRecords = state.records.filter((r) => r.team === leader.team && r.status === "active");
+      const teamRecords = filterRecords(state.records, { status: "active", team: leader.team });
       const knownAgents = new Set(
         state.users.filter((u) => u.role === "agent" && u.team === leader.team).map((u) => u.name),
       );
       for (const r of teamRecords) knownAgents.add(r.userName);
-      const scores = teamRecords.map((r) => effectiveScore(r));
       const last7 = teamRecords.filter((r) => r.savedAt >= now - week);
       const prev7 = teamRecords.filter((r) => r.savedAt >= now - 2 * week && r.savedAt < now - week);
-      const trend =
-        avg(last7.map((r) => effectiveScore(r))) - avg(prev7.map((r) => effectiveScore(r)));
+      const trend = averageScore(last7) - averageScore(prev7);
       return {
         name: leader.name,
         email: leader.email,
         team: leader.team,
         agents: knownAgents.size,
         engagements: teamRecords.length,
-        avgScore: avg(scores),
+        avgScore: averageScore(teamRecords),
         compliance: complianceScore(teamRecords, phrases, state.categories),
         pulse: pulseRate(teamRecords),
         dropped: teamRecords.filter((r) => r.dropped).length,
@@ -43,12 +42,11 @@ export function ManagerLeaders({ onNavigate }: { onNavigate: (r: Route) => void 
   const totals = useMemo(() => {
     const allTeams = new Set(rows.map((r) => r.team));
     const scoped = state.records.filter((r) => r.status === "active" && allTeams.has(r.team));
+    const summary = summarise(scoped, phrases, state.categories);
     return {
+      ...summary,
       leaders: rows.length,
       agents: new Set(state.users.filter((u) => u.role === "agent").map((u) => u.name)).size,
-      avg: avg(scoped.map((r) => effectiveScore(r))),
-      compliance: complianceScore(scoped, phrases, state.categories),
-      pulse: pulseRate(scoped),
     };
   }, [rows, state.records, state.users, phrases, state.categories]);
 
@@ -67,7 +65,7 @@ export function ManagerLeaders({ onNavigate }: { onNavigate: (r: Route) => void 
       <div className="stat-grid-4">
         <Card className="mini-stat"><span>Team leaders</span><strong>{totals.leaders}</strong><small>across {rows.length} team(s)</small></Card>
         <Card className="mini-stat"><span>Agents managed</span><strong>{totals.agents}</strong><small>in scoped teams</small></Card>
-        <Card className="mini-stat"><span>Avg engagement score</span><strong>{totals.avg ? `${totals.avg}%` : "—"}</strong><small>across scoped teams</small></Card>
+        <Card className="mini-stat"><span>Avg engagement score</span><strong>{totals.avgScore ? `${totals.avgScore}%` : "—"}</strong><small>across scoped teams</small></Card>
         <Card className="mini-stat"><span>Compliance</span><strong>{totals.compliance ? `${totals.compliance}%` : "—"}</strong><small>Pulse adoption {totals.pulse}%</small></Card>
       </div>
 

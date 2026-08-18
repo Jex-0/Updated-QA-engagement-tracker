@@ -33,12 +33,31 @@ export function pct(n: number): string {
   return `${Math.round(n)}%`;
 }
 
+export function yesNo(value: boolean): string {
+  return value ? "Yes" : "No";
+}
+
+/** The single place the good / watch / poor score thresholds are defined. */
 export function scoreTone(score: number): "high" | "mid" | "low" {
   return score >= 80 ? "high" : score >= 50 ? "mid" : "low";
 }
 
+const BAND_TONE = { high: "success", mid: "warning", low: "danger" } as const;
+
+export type ScoreBadgeTone = (typeof BAND_TONE)[keyof typeof BAND_TONE];
+
+/** Badge / progress-bar tone for a score. */
+export function scoreBadgeTone(score: number): ScoreBadgeTone {
+  return BAND_TONE[scoreTone(score)];
+}
+
+/** Compliance is pass / needs-attention only — never rendered as a failure. */
+export function complianceTone(score: number): "success" | "warning" {
+  return score >= 80 ? "success" : "warning";
+}
+
 export function scoreColor(score: number): string {
-  return score >= 80 ? "var(--success)" : score >= 50 ? "var(--warning)" : "var(--danger)";
+  return `var(--${scoreBadgeTone(score)})`;
 }
 
 /** Effective score after any manager correction. */
@@ -109,6 +128,27 @@ export const COMPLIANCE_CATEGORIES = new Set([
   "Call Closing",
 ]);
 
+export interface ComplianceBreakdown {
+  /** ids of mandatory steps that were completed */
+  compliant: string[];
+  /** ids of mandatory steps that were missed */
+  nonCompliant: string[];
+  score: number | null;
+}
+
+/** Splits a record's items into compliant / non-compliant mandatory steps. */
+export function complianceBreakdown(
+  record: EngagementRecord,
+  phrases: Phrase[],
+  categories: ChecklistCategory[],
+): ComplianceBreakdown {
+  const isCompliance = (id: string) => COMPLIANCE_CATEGORIES.has(categoryNameOf(categories, phrases, id));
+  const compliant = record.checkedItems.filter(isCompliance);
+  const nonCompliant = record.missedItems.filter(isCompliance);
+  const total = compliant.length + nonCompliant.length;
+  return { compliant, nonCompliant, score: total ? Math.round((compliant.length / total) * 100) : null };
+}
+
 export function complianceScore(
   records: EngagementRecord[],
   phrases: Phrase[],
@@ -117,15 +157,10 @@ export function complianceScore(
   if (!records.length) return 0;
   let done = 0;
   let total = 0;
-  const categoryOf = (id: string) => categoryNameOf(categories, phrases, id);
   for (const r of records) {
-    for (const c of r.checkedItems) {
-      if (COMPLIANCE_CATEGORIES.has(categoryOf(c))) {
-        done++;
-        total++;
-      }
-    }
-    for (const c of r.missedItems) if (COMPLIANCE_CATEGORIES.has(categoryOf(c))) total++;
+    const { compliant, nonCompliant } = complianceBreakdown(r, phrases, categories);
+    done += compliant.length;
+    total += compliant.length + nonCompliant.length;
   }
   return total ? Math.round((done / total) * 100) : 0;
 }

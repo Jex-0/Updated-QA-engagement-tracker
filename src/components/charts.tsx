@@ -1,5 +1,6 @@
 import { Fragment, useMemo, useState } from "react";
 import { fmtDate, fmtDuration, rollingAverage } from "../lib/format";
+import { DAY_MS } from "../lib/records";
 
 /* ------------------------------ LineChart ----------------------------- */
 
@@ -226,7 +227,7 @@ export function TrendBadge({ current, previous, suffix = "%" }: { current: numbe
 /* ------------------------------ Sparkline label helper ------------------ */
 
 export function dayLabels(days: number, endTs: number): string[] {
-  return Array.from({ length: days }, (_, i) => fmtDate(endTs - (days - 1 - i) * 86_400_000).slice(0, 6));
+  return Array.from({ length: days }, (_, i) => fmtDate(endTs - (days - 1 - i) * DAY_MS).slice(0, 6));
 }
 
 export function durationLabel(sec: number): string {

@@ -1,18 +1,17 @@
 import { useMemo, useState } from "react";
 import { useStore } from "../lib/store";
-import { Avatar, Badge, Button, Card, CardHeader, EmptyState, Field, Modal, ScoreBadge, SegmentedControl, Select, StatCard, Textarea, useToast } from "../components/ui";
+import { Avatar, Badge, Button, Card, CardHeader, EmptyState, EngagementStatusBadge, Field, Modal, ScoreBadge, SegmentedControl, Select, StatCard, Textarea, useToast } from "../components/ui";
 import { Bars, LineChart, TrendBadge } from "../components/charts";
-import { avg, categoryPerformance, complianceScore, effectiveScore, fmtDate, fmtDateTime, pulseRate } from "../lib/format";
+import { avg, categoryPerformance, complianceTone, effectiveScore, fmtDate, fmtDateTime, yesNo } from "../lib/format";
+import { filterRecords, rangeCutoff, scoresOf, sortedByDate, summarise, type DayRange } from "../lib/records";
 import { Icon } from "../components/icons";
 import type { Route } from "../lib/router";
-
-type Range = "7" | "30" | "all";
 
 export function AgentProfileView({ name, team, onNavigate }: { name: string; team: string; onNavigate: (r: Route) => void }) {
   const { state, actions } = useStore();
   const toast = useToast();
   const session = state.session!;
-  const [range, setRange] = useState<Range>("all");
+  const [range, setRange] = useState<DayRange>("all");
   const [noteModal, setNoteModal] = useState(false);
   const [noteType, setNoteType] = useState<"strength" | "improvement">("strength");
   const [noteText, setNoteText] = useState("");
@@ -23,26 +22,18 @@ export function AgentProfileView({ name, team, onNavigate }: { name: string; tea
     return <EmptyState icon="shield" title="Restricted" description="Agents can only view their own profile." />;
   }
 
-  const cutoff = range === "all" ? 0 : Date.now() - Number(range) * 86_400_000;
-  const all = state.records
-    .filter((r) => r.userName === name && r.team === team && r.status === "active")
-    .sort((a, b) => b.savedAt - a.savedAt);
-  const scoped = all.filter((r) => r.savedAt >= cutoff);
+  const all = sortedByDate(filterRecords(state.records, { status: "active", agent: name, team }));
+  const scoped = all.filter((r) => r.savedAt >= rangeCutoff(range));
   const notes = state.notes.filter((n) => n.agentName === name && n.team === team).sort((a, b) => b.ts - a.ts);
 
-  const scores = useMemo(() => scoped.map((r) => effectiveScore(r)), [scoped]);
-  const avgScore = avg(scores);
-  const compliance = complianceScore(scoped, state.phrases, state.categories);
-  const pulse = pulseRate(scoped);
+  const scores = useMemo(() => scoresOf(scoped), [scoped]);
+  const { avgScore, compliance, pulse } = summarise(scoped, state.phrases, state.categories);
 
   // Period comparison: most recent half vs previous half of the scoped history
   const { recent, previous } = useMemo(() => {
-    const sorted = [...scoped].sort((a, b) => a.savedAt - b.savedAt);
-    const half = Math.floor(sorted.length / 2);
-    return {
-      recent: avg(sorted.slice(half).map((r) => effectiveScore(r))),
-      previous: avg(sorted.slice(0, half).map((r) => effectiveScore(r))),
-    };
+    const chronological = scoresOf(sortedByDate(scoped, "oldest"));
+    const half = Math.floor(chronological.length / 2);
+    return { recent: avg(chronological.slice(half)), previous: avg(chronological.slice(0, half)) };
   }, [scoped]);
 
   const cats = useMemo(() => categoryPerformance(scoped, state.phrases, state.categories), [scoped, state.phrases, state.categories]);
@@ -50,8 +41,8 @@ export function AgentProfileView({ name, team, onNavigate }: { name: string; tea
   const weaknesses = cats.filter((c) => c.rate < 70).sort((a, b) => a.rate - b.rate);
 
   const trend = useMemo(() => {
-    const sorted = [...scoped].sort((a, b) => a.savedAt - b.savedAt);
-    return { data: sorted.map((r) => effectiveScore(r)), labels: sorted.map((r) => fmtDate(r.savedAt).slice(0, 6)) };
+    const sorted = sortedByDate(scoped, "oldest");
+    return { data: scoresOf(sorted), labels: sorted.map((r) => fmtDate(r.savedAt).slice(0, 6)) };
   }, [scoped]);
 
   const submitNote = () => {
@@ -110,7 +101,7 @@ export function AgentProfileView({ name, team, onNavigate }: { name: string; tea
 
       <div className="stat-grid-4">
         <StatCard icon="star" label="Current average" value={`${avgScore}%`} tone="success" sub={`${scoped.length} engagements in scope`} />
-        <StatCard icon="shield" label="Compliance score" value={`${compliance}%`} tone={compliance >= 80 ? "success" : "warning"} sub="Regulatory steps adherence" />
+        <StatCard icon="shield" label="Compliance score" value={`${compliance}%`} tone={complianceTone(compliance)} sub="Regulatory steps adherence" />
         <StatCard icon="checkCircle" label="Best score" value={scores.length ? `${Math.max(...scores)}%` : "—"} tone="info" sub={scores.length ? "Most recent period" : "No data"} />
         <StatCard icon="history" label="Last engagement" value={scoped.length ? fmtDate(scoped[0].savedAt) : "—"} sub={scoped.length ? `${scoped[0].completed}/${scoped[0].total} steps` : "No data"} />
       </div>
@@ -193,8 +184,8 @@ export function AgentProfileView({ name, team, onNavigate }: { name: string; tea
                     <td>{fmtDateTime(r.savedAt)}</td>
                     <td><ScoreBadge score={effectiveScore(r)} /></td>
                     <td>{r.completed}/{r.total}</td>
-                    <td>{r.pulseCompleted ? "Yes" : "No"}</td>
-                    <td>{r.dropped ? <Badge tone="warning">Dropped</Badge> : r.status === "archived" ? <Badge tone="neutral">Archived</Badge> : <Badge tone="success">Saved</Badge>}</td>
+                    <td>{yesNo(r.pulseCompleted)}</td>
+                    <td><EngagementStatusBadge record={r} /></td>
                     <td>{r.reviewed ? fmtDate(r.reviewed.at) : <span className="muted">—</span>}</td>
                     <td><Icon name="chevronRight" size={14} /></td>
                   </tr>
