@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../lib/store";
-import { Button, Card, CardHeader, EmptyState, Modal, ProgressBar, ScoreBadge, Textarea, useToast } from "../components/ui";
+import { Button, Card, CardHeader, EmptyState, EngagementStatusBadge, Modal, ProgressBar, ScoreBadge, Textarea, useToast } from "../components/ui";
 import { Icon } from "../components/icons";
 import { buildKeywordMap, PULSE_LABEL, PULSE_PROMPT } from "../lib/checklist";
 import { buildTimelineFromSession } from "../lib/timeline";
-import { effectiveScore, fmtDateTime, fmtTime } from "../lib/format";
+import { effectiveScore, fmtDateTime, fmtTime, yesNo } from "../lib/format";
+import { filterRecords, sortedByDate } from "../lib/records";
 import { useSpeech } from "../hooks/useSpeech";
 import type { Route } from "../lib/router";
 
@@ -65,10 +66,7 @@ export function TrackerView({ onNavigate }: { onNavigate: (r: Route) => void }) 
   const missed = phrases.filter((p) => !sess.checked[p.id]).map((p) => p.id);
 
   const myRecords = useMemo(
-    () =>
-      state.records
-        .filter((r) => r.userName === session.name && r.team === session.team && r.status === "active")
-        .sort((a, b) => b.savedAt - a.savedAt),
+    () => sortedByDate(filterRecords(state.records, { status: "active", agent: session.name, team: session.team })),
     [state.records, session.name, session.team],
   );
 
@@ -362,8 +360,8 @@ export function TrackerView({ onNavigate }: { onNavigate: (r: Route) => void }) 
                     <td>{fmtDateTime(r.savedAt)}</td>
                     <td><ScoreBadge score={effectiveScore(r)} /></td>
                     <td>{r.completed}/{r.total}</td>
-                    <td>{r.pulseCompleted ? "Yes" : "No"}</td>
-                    <td>{r.dropped ? <span className="badge badge-warning">Dropped</span> : <span className="badge badge-success">Saved</span>}</td>
+                    <td>{yesNo(r.pulseCompleted)}</td>
+                    <td><EngagementStatusBadge record={r} /></td>
                     <td><Icon name="chevronRight" size={14} /></td>
                   </tr>
                 ))}

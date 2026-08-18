@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type HTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
 import { Icon, type IconName } from "./icons";
+import { scoreTone } from "../lib/format";
+import type { EngagementRecord } from "../lib/types";
 
 /* ------------------------------ helpers ------------------------------ */
 
@@ -62,8 +64,14 @@ export function Badge({ tone = "neutral", className, children }: { tone?: BadgeT
 }
 
 export function ScoreBadge({ score }: { score: number }) {
-  const tone = score >= 80 ? "success" : score >= 50 ? "warning" : "danger";
-  return <Badge tone={tone}>{score}%</Badge>;
+  return <Badge tone={scoreTone(score)}>{score}%</Badge>;
+}
+
+/** Archived / dropped / active badge for a saved engagement. */
+export function EngagementStatusBadge({ record, activeLabel = "Saved" }: { record: Pick<EngagementRecord, "status" | "dropped">; activeLabel?: string }) {
+  if (record.status === "archived") return <Badge tone="neutral">Archived</Badge>;
+  if (record.dropped) return <Badge tone="warning">Dropped</Badge>;
+  return <Badge tone="success">{activeLabel}</Badge>;
 }
 
 /* ----------------------------- StatCard ------------------------------ */
@@ -239,7 +247,7 @@ export function Skeleton({ className, style }: { className?: string; style?: CSS
 /* ----------------------------- Progress ------------------------------- */
 
 export function ProgressBar({ value, tone }: { value: number; tone?: "primary" | "success" | "warning" | "danger" }) {
-  const t = tone ?? (value >= 80 ? "success" : value >= 50 ? "warning" : "danger");
+  const t = tone ?? scoreTone(value);
   return (
     <div className="progress-track" role="progressbar" aria-valuenow={value} aria-valuemin={0} aria-valuemax={100}>
       <div className={cn("progress-fill", `fill-${t}`)} style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />

@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import { useStore } from "../lib/store";
-import { Badge, Card, CardHeader, EmptyState, Input, ScoreBadge, Select } from "../components/ui";
+import { Badge, Card, CardHeader, EmptyState, EngagementStatusBadge, Input, ScoreBadge, Select } from "../components/ui";
 import { Icon } from "../components/icons";
-import { effectiveScore, fmtDateTime } from "../lib/format";
+import { effectiveScore, fmtDateTime, yesNo } from "../lib/format";
+import { agentNames, filterRecords, sortedByDate } from "../lib/records";
 import type { Route } from "../lib/router";
 
 export function EngagementsView({ onNavigate }: { onNavigate: (r: Route) => void }) {
@@ -12,16 +13,10 @@ export function EngagementsView({ onNavigate }: { onNavigate: (r: Route) => void
   const [status, setStatus] = useState<"all" | "active" | "archived">("all");
   const [query, setQuery] = useState("");
 
-  const agents = useMemo(() => [...new Set(state.records.map((r) => r.userName))].sort(), [state.records]);
+  const agents = useMemo(() => agentNames(state.records), [state.records]);
 
   const list = useMemo(
-    () =>
-      state.records
-        .filter((r) => team === "all" || r.team === team)
-        .filter((r) => agent === "all" || r.userName === agent)
-        .filter((r) => status === "all" || r.status === status)
-        .filter((r) => !query || `${r.userName} ${r.team}`.toLowerCase().includes(query.toLowerCase()))
-        .sort((a, b) => b.savedAt - a.savedAt),
+    () => sortedByDate(filterRecords(state.records, { team, agent, status, query })),
     [state.records, team, agent, status, query],
   );
 
@@ -76,10 +71,8 @@ export function EngagementsView({ onNavigate }: { onNavigate: (r: Route) => void
                   <td>{fmtDateTime(r.savedAt)}</td>
                   <td><ScoreBadge score={effectiveScore(r)} /></td>
                   <td>{r.completed}/{r.total}</td>
-                  <td>{r.pulseCompleted ? "Yes" : "No"}</td>
-                  <td>
-                    {r.status === "archived" ? <Badge tone="neutral">Archived</Badge> : r.dropped ? <Badge tone="warning">Dropped</Badge> : <Badge tone="success">Saved</Badge>}
-                  </td>
+                  <td>{yesNo(r.pulseCompleted)}</td>
+                  <td><EngagementStatusBadge record={r} /></td>
                 </tr>
               ))}
             </tbody>

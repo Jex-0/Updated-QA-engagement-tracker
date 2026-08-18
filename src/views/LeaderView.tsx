@@ -2,13 +2,27 @@ import { useMemo, useState } from "react";
 import { useStore } from "../lib/store";
 import { Avatar, Badge, Button, Card, CardHeader, EmptyState, ScoreBadge, SegmentedControl, Select, StatCard } from "../components/ui";
 import { Icon } from "../components/icons";
-import { Bars, Heatmap, LineChart, Sparkline, TrendBadge } from "../components/charts";
-import { avg, complianceScore, effectiveScore, fmtDate, pulseRate, scoreColor } from "../lib/format";
+import { Bars, dayLabels, Heatmap, LineChart, Sparkline, TrendBadge } from "../components/charts";
+import { avg, complianceTone, fmtDate, pulseRate, scoreColor } from "../lib/format";
+import {
+  agentKey,
+  averageScore,
+  DAY_MS,
+  filterRecords,
+  groupBy,
+  isoDay,
+  lastReviewAt,
+  rangeCutoff,
+  scoresOf,
+  sortedByDate,
+  splitAgentKey,
+  summarise,
+  type DayRange,
+} from "../lib/records";
 import type { EngagementRecord } from "../lib/types";
 import type { Route } from "../lib/router";
 
 type Period = "daily" | "weekly" | "monthly";
-type Range = "7" | "30" | "90" | "all";
 
 interface AgentStat {
   name: string;
@@ -26,12 +40,12 @@ interface AgentStat {
 
 function bucketKey(ts: number, period: Period): string {
   const d = new Date(ts);
-  if (period === "daily") return d.toISOString().slice(0, 10);
+  if (period === "daily") return isoDay(ts);
   if (period === "monthly") return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   const day = (d.getDay() + 6) % 7; // Monday = 0
   const monday = new Date(d);
   monday.setDate(d.getDate() - day);
-  return monday.toISOString().slice(0, 10);
+  return isoDay(monday.getTime());
 }
 
 function bucketLabel(key: string, period: Period): string {
@@ -43,109 +57,85 @@ function bucketLabel(key: string, period: Period): string {
 export function LeaderView({ onNavigate }: { onNavigate: (r: Route) => void }) {
   const { state } = useStore();
   const [period, setPeriod] = useState<Period>("daily");
-  const [range, setRange] = useState<Range>("30");
+  const [range, setRange] = useState<DayRange>("30");
   const [teamFilter, setTeamFilter] = useState("all");
 
-  const cutoff = range === "all" ? 0 : Date.now() - Number(range) * 86_400_000;
+  const cutoff = rangeCutoff(range);
 
   const scoped = useMemo(
-    () =>
-      state.records
-        .filter((r) => r.status === "active")
-        .filter((r) => r.savedAt >= cutoff)
-        .filter((r) => teamFilter === "all" || r.team === teamFilter),
+    () => filterRecords(state.records, { status: "active", since: cutoff, team: teamFilter }),
     [state.records, cutoff, teamFilter],
   );
 
   const agentStats: AgentStat[] = useMemo(() => {
-    const map = new Map<string, EngagementRecord[]>();
-    for (const r of scoped) {
-      const k = `${r.userName}|${r.team}`;
-      map.set(k, [...(map.get(k) || []), r]);
-    }
-    const stats: AgentStat[] = [];
-    for (const [k, list] of map) {
-      const [name, team] = k.split("|");
-      const sorted = [...list].sort((a, b) => a.savedAt - b.savedAt);
-      const scores = sorted.map((r) => effectiveScore(r));
-      const recent = scores.slice(-5);
+    const stats = [...groupBy(scoped, agentKey).entries()].map(([key, list]) => {
+      const { name, team } = splitAgentKey(key);
+      const sorted = sortedByDate(list, "oldest");
+      const scores = scoresOf(sorted);
       const prev = scores.slice(-10, -5);
       const notes = state.notes.filter((n) => n.agentName === name && n.team === team);
-      stats.push({
+      return {
         name,
         team,
         records: sorted,
         avg: avg(scores),
         last: scores[scores.length - 1] ?? 0,
-        pulse: Math.round((list.filter((r) => r.pulseCompleted).length / list.length) * 100),
-        trend: avg(recent),
+        pulse: pulseRate(list),
+        trend: avg(scores.slice(-5)),
         prevTrend: prev.length ? avg(prev) : avg(scores),
-        lastReview: sorted.reduce<number | null>((acc, r) => (r.reviewed ? Math.max(acc ?? 0, r.reviewed.at) : acc), null),
+        lastReview: lastReviewAt(sorted),
         noteCount: notes.length,
         lastNoteType: notes[0]?.type,
-      });
-    }
+      };
+    });
     return stats.sort((a, b) => b.avg - a.avg);
   }, [scoped, state.notes]);
 
   const overall = useMemo(() => {
-    const scores = scoped.map((r) => effectiveScore(r));
-    const activeAgents = new Set(scoped.map((r) => `${r.userName}|${r.team}`)).size;
+    const summary = summarise(scoped, state.phrases, state.categories);
     const totalAgents = new Set(
       state.users.filter((u) => u.role === "agent" || u.role === "leader").map((u) => `${u.name}|${u.team}`),
     ).size;
     return {
+      ...summary,
       totalAgents: Math.max(totalAgents, agentStats.length),
-      activeAgents: activeAgents,
-      avgScore: avg(scores),
-      compliance: complianceScore(scoped, state.phrases, state.categories),
-      pulse: pulseRate(scoped),
+      activeAgents: summary.agents,
     };
-  }, [scoped, agentStats.length, state.users]);
+  }, [scoped, agentStats.length, state.users, state.phrases, state.categories]);
 
   const trendData = useMemo(() => {
-    const buckets = new Map<string, number[]>();
-    for (const r of scoped) {
-      const k = bucketKey(r.savedAt, period);
-      buckets.set(k, [...(buckets.get(k) || []), effectiveScore(r)]);
-    }
+    const buckets = groupBy(scoped, (r) => bucketKey(r.savedAt, period));
     const keys = [...buckets.keys()].sort();
     return {
-      data: keys.map((k) => avg(buckets.get(k)!)),
+      data: keys.map((k) => averageScore(buckets.get(k)!)),
       labels: keys.map((k) => bucketLabel(k, period)),
     };
   }, [scoped, period]);
 
-  const teamComparison = useMemo(() => {
-    const map = new Map<string, number[]>();
-    for (const r of scoped) {
-      map.set(r.team, [...(map.get(r.team) || []), effectiveScore(r)]);
-    }
-    return [...map.entries()]
-      .map(([team, scores]) => ({ label: team, value: avg(scores) }))
-      .sort((a, b) => b.value - a.value);
-  }, [scoped]);
+  const teamComparison = useMemo(
+    () =>
+      [...groupBy(scoped, (r) => r.team).entries()]
+        .map(([team, list]) => ({ label: team, value: averageScore(list) }))
+        .sort((a, b) => b.value - a.value),
+    [scoped],
+  );
 
   const heatmap = useMemo(() => {
     const days = 14;
-    const cols: string[] = [];
     const end = Date.now();
-    for (let i = days - 1; i >= 0; i--) {
-      cols.push(fmtDate(end - i * 86_400_000).slice(0, 6));
-    }
+    const columns = dayLabels(days, end);
+    const dayKeys = Array.from({ length: days }, (_, i) => isoDay(end - (days - 1 - i) * DAY_MS));
     const rows = agentStats.slice(0, 12).map((a) => {
-      const byDay = new Map<string, number[]>();
-      for (const r of a.records) byDay.set(r.isoDate, [...(byDay.get(r.isoDate) || []), effectiveScore(r)]);
+      const byDay = groupBy(a.records, (r) => r.isoDate);
       return {
         label: a.name,
-        values: cols.map((_, i) => {
-          const d = new Date(end - (days - 1 - i) * 86_400_000).toISOString().slice(0, 10);
-          const list = byDay.get(d);
-          return list ? avg(list) : null;
+        values: dayKeys.map((key) => {
+          const list = byDay.get(key);
+          return list ? averageScore(list) : null;
         }),
       };
     });
-    return { rows, columns: cols };
+    return { rows, columns };
   }, [agentStats]);
 
   return (
@@ -161,7 +151,7 @@ export function LeaderView({ onNavigate }: { onNavigate: (r: Route) => void }) {
               { value: "monthly", label: "Monthly" },
             ]}
           />
-          <Select value={range} onChange={(e) => setRange(e.target.value as Range)} aria-label="Date range">
+          <Select value={range} onChange={(e) => setRange(e.target.value as DayRange)} aria-label="Date range">
             <option value="7">Last 7 days</option>
             <option value="30">Last 30 days</option>
             <option value="90">Last 90 days</option>
@@ -183,7 +173,7 @@ export function LeaderView({ onNavigate }: { onNavigate: (r: Route) => void }) {
         <StatCard icon="users" label="Total agents" value={overall.totalAgents} sub="Across filtered scope" />
         <StatCard icon="user" label="Active agents" value={overall.activeAgents} sub="Recorded this period" tone="info" />
         <StatCard icon="star" label="Average engagement score" value={`${overall.avgScore}%`} sub={`${scoped.length} engagements`} tone="success" />
-        <StatCard icon="shield" label="Compliance score" value={`${overall.compliance}%`} sub={`Pulse rate ${overall.pulse}%`} tone={overall.compliance >= 80 ? "success" : "warning"} />
+        <StatCard icon="shield" label="Compliance score" value={`${overall.compliance}%`} sub={`Pulse rate ${overall.pulse}%`} tone={complianceTone(overall.compliance)} />
       </div>
 
       <div className="dash-grid-2">
@@ -281,7 +271,7 @@ export function LeaderView({ onNavigate }: { onNavigate: (r: Route) => void }) {
                       )}
                     </td>
                     <td>{a.lastReview ? fmtDate(a.lastReview) : <span className="muted">Never</span>}</td>
-                    <td><Sparkline data={a.records.map((r) => effectiveScore(r)).slice(-10)} /></td>
+                    <td><Sparkline data={scoresOf(a.records).slice(-10)} /></td>
                   </tr>
                 ))}
               </tbody>
