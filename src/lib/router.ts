@@ -1,3 +1,5 @@
+import { logError } from "./errors";
+
 export type RouteName =
   | "auth"
   | "tracker"
@@ -42,8 +44,18 @@ export function routeToHash(r: Route): string {
   }
 }
 
+/** Malformed percent-escapes (hand-edited URLs) must not crash the router. */
+function safeDecode(part: string): string {
+  try {
+    return decodeURIComponent(part);
+  } catch (e) {
+    logError("router.parseHash", e, { part });
+    return part;
+  }
+}
+
 export function parseHash(hash: string): Route {
-  const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean).map((p) => decodeURIComponent(p));
+  const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(safeDecode);
   const [name, a, b] = parts;
   switch (name) {
     case "tracker":

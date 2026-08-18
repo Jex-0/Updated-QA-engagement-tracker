@@ -1,8 +1,9 @@
-import { Component, useEffect, useState, type ErrorInfo, type ReactNode } from "react";
+import { Component, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from "react";
 import { StoreProvider, useStore } from "./lib/store";
 import { ToastProvider, useToast } from "./components/ui";
 import { AppShell, canAccess, defaultRoute } from "./components/layout";
 import { parseHash, routeToHash, type Route } from "./lib/router";
+import { logError } from "./lib/errors";
 import { AuthView } from "./views/AuthView";
 import { TrackerView } from "./views/TrackerView";
 import { LeaderView } from "./views/LeaderView";
@@ -19,6 +20,21 @@ function ThemeSync() {
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", state.settings.theme);
   }, [state.settings.theme]);
+  return null;
+}
+
+/** Storage writes fail silently otherwise — warn the user their data is not persisted. */
+function PersistenceAlert() {
+  const { persistError } = useStore();
+  const toast = useToast();
+  const shown = useRef<string | null>(null);
+  useEffect(() => {
+    if (persistError && shown.current !== persistError) {
+      shown.current = persistError;
+      toast.push(persistError, "error");
+    }
+    if (!persistError) shown.current = null;
+  }, [persistError, toast]);
   return null;
 }
 
@@ -96,7 +112,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("[app] crashed", error, info);
+    logError("app.crash", error, { componentStack: info.componentStack });
   }
 
   render() {
@@ -121,8 +137,8 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
               onClick={() => {
                 try {
                   localStorage.clear();
-                } catch {
-                  /* storage unavailable */
+                } catch (e) {
+                  logError("app.reset", e);
                 }
                 window.location.reload();
               }}
@@ -152,6 +168,7 @@ export default function App() {
       <StoreProvider>
         <ToastProvider>
           <ThemeSync />
+          <PersistenceAlert />
           <Router />
         </ToastProvider>
       </StoreProvider>

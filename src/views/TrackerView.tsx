@@ -6,6 +6,7 @@ import { buildKeywordMap, PULSE_LABEL, PULSE_PROMPT } from "../lib/checklist";
 import { buildTimelineFromSession } from "../lib/timeline";
 import { effectiveScore, fmtDateTime, fmtTime } from "../lib/format";
 import { useSpeech } from "../hooks/useSpeech";
+import { logError } from "../lib/errors";
 import type { Route } from "../lib/router";
 
 const SESSION_KEY = "qe-session-state-v2";
@@ -29,8 +30,8 @@ function loadSession(name: string): SessionState {
   try {
     const raw = localStorage.getItem(`${SESSION_KEY}:${name}`);
     if (raw) return { ...emptySession(), ...(JSON.parse(raw) as SessionState) };
-  } catch {
-    /* ignore */
+  } catch (e) {
+    logError("tracker.loadSession", e, { name });
   }
   return emptySession();
 }
@@ -47,6 +48,7 @@ export function TrackerView({ onNavigate }: { onNavigate: (r: Route) => void }) 
   const [historyOpen, setHistoryOpen] = useState(false);
   const [openPicker, setOpenPicker] = useState<string | null>(null);
   const savedRef = useRef(false);
+  const sessionSaveWarned = useRef(false);
 
   const phrases = state.phrases;
   const categories = state.categories;
@@ -55,10 +57,15 @@ export function TrackerView({ onNavigate }: { onNavigate: (r: Route) => void }) 
   useEffect(() => {
     try {
       localStorage.setItem(`${SESSION_KEY}:${session.name}`, JSON.stringify(sess));
-    } catch {
-      /* ignore */
+      sessionSaveWarned.current = false;
+    } catch (e) {
+      const message = logError("tracker.saveSession", e, { name: session.name });
+      if (!sessionSaveWarned.current) {
+        sessionSaveWarned.current = true;
+        toast.push(`This call is not being kept in browser storage (${message}). Save the engagement before closing the tab.`, "error");
+      }
     }
-  }, [sess, session.name]);
+  }, [sess, session.name, toast]);
 
   const checkedCount = phrases.filter((p) => sess.checked[p.id]).length;
   const liveScore = Math.round((checkedCount / Math.max(phrases.length, 1)) * 100);
@@ -138,18 +145,25 @@ export function TrackerView({ onNavigate }: { onNavigate: (r: Route) => void }) 
   const saveCall = (dropped: boolean) => {
     if (savedRef.current) return;
     savedRef.current = true;
-    const timeline = buildTimelineFromSession(categories, phrases, sess.ticks, sess.variants, sess.sources, missed, sess.pulse);
-    actions.saveEngagement({
-      userName: session.name,
-      team: session.team,
-      checkedItems: phrases.filter((p) => sess.checked[p.id]).map((p) => p.id),
-      missedItems: missed,
-      pulseCompleted: sess.pulse,
-      dropped,
-      transcript: speech.transcript || sess.transcript || undefined,
-      timeline,
-      notes: sess.notes || undefined,
-    });
+    try {
+      const timeline = buildTimelineFromSession(categories, phrases, sess.ticks, sess.variants, sess.sources, missed, sess.pulse);
+      actions.saveEngagement({
+        userName: session.name,
+        team: session.team,
+        checkedItems: phrases.filter((p) => sess.checked[p.id]).map((p) => p.id),
+        missedItems: missed,
+        pulseCompleted: sess.pulse,
+        dropped,
+        transcript: speech.transcript || sess.transcript || undefined,
+        timeline,
+        notes: sess.notes || undefined,
+      });
+    } catch (e) {
+      // Keep the captured session so nothing is lost when the save fails.
+      savedRef.current = false;
+      toast.push(`Engagement could not be saved: ${logError("tracker.save", e)}`, "error");
+      return;
+    }
     toast.push(dropped ? "Call saved as DROPPED for team review." : "Engagement saved to team history.");
     speech.reset();
     setSess(emptySession());

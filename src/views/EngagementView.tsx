@@ -5,6 +5,7 @@ import { Icon } from "../components/icons";
 import { buildTimelineForRecord, coachingRecommendations } from "../lib/timeline";
 import { avg, complianceScore, effectiveScore, fmtDateTime, fmtTime } from "../lib/format";
 import { resolveCategoryLabel } from "../lib/checklist";
+import { logError } from "../lib/errors";
 import type { EventType, TimelineEvent } from "../lib/types";
 import type { Route } from "../lib/router";
 
@@ -111,7 +112,11 @@ export function EngagementView({ id, onNavigate }: { id: string; onNavigate: (r:
 
   const submitDispute = () => {
     if (!reason.trim()) return toast.push("Add a reason for the dispute", "error");
-    actions.openDispute(record.id, reason.trim());
+    try {
+      actions.openDispute(record.id, reason.trim());
+    } catch (e) {
+      return toast.push(logError("engagement.openDispute", e, { id: record.id }), "error");
+    }
     toast.push("Dispute opened for manager review");
     setModal(null);
   };

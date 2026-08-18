@@ -54,7 +54,7 @@ export function AuthView({ onNavigate }: { onNavigate: (r: Route) => void }) {
 
   const demoLogin = (demoName: string) => {
     const u = state.users.find((x) => x.name === demoName);
-    if (!u) return;
+    if (!u) return toast.push(`${demoName} is no longer in this workspace`, "error");
     actions.login(u.name, u.team, u.role, u.email);
     toast.push(`Browsing as ${u.name} (${ROLE_LABEL[u.role]})`);
     go({ name: u.role === "agent" ? "tracker" : "dashboard" });
