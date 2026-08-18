@@ -1,13 +1,6 @@
 import type { ChecklistCategory, EngagementRecord, Phrase, TimelineEvent } from "./types";
-import { categoryById, categoryEventLabel, categoryEventType, coachingForCategory, missedOpportunityLabel, PULSE_LABEL, resolvePhrase } from "./checklist";
+import { categoryEventLabel, categoryEventType, categoryNameOf, coachingForCategory, missedOpportunityLabel, PULSE_LABEL, resolvePhrase } from "./checklist";
 import { uid } from "./seed";
-
-/** Category name for a phrase (or legacy category-name item). */
-function categoryNameOf(categories: ChecklistCategory[], phrases: Phrase[], id: string): string {
-  const phrase = resolvePhrase(categories, phrases, id);
-  if (phrase) return categoryById(categories, phrase.categoryId)?.name ?? phrase.categoryId;
-  return id;
-}
 
 /**
  * Build a live timeline from session ticks.
