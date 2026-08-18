@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { Avatar, cn } from "./ui";
 import { Icon, type IconName } from "./icons";
 import { useStore } from "../lib/store";
+import { LOGO_SRC } from "../lib/assets";
 import { ROLE_LABEL, type Role } from "../lib/types";
 import type { Route, RouteName } from "../lib/router";
 
@@ -97,7 +98,7 @@ export function AppShell({
     <div className="shell">
       <aside className={cn("sidebar", mobileOpen && "open")}>
         <div className="brand">
-          <img src="/CPI.JO-7f69f481.png" alt="" className="brand-logo" />
+          <img src={LOGO_SRC} alt="" className="brand-logo" />
           <div className="brand-text">
             <strong>Engagement</strong>
             <span>Quality Tracker</span>
