@@ -29,10 +29,73 @@ declare global {
 
 let db: FirestoreLike | null = null;
 
-function loadScript(src: string): Promise<void> {
+const CONFIG_KEYS = [
+  "apiKey",
+  "authDomain",
+  "databaseURL",
+  "projectId",
+  "storageBucket",
+  "messagingSenderId",
+  "appId",
+  "measurementId",
+] as const;
+
+export type FirebaseConfig = Partial<Record<(typeof CONFIG_KEYS)[number], string>>;
+
+/**
+ * Read a pasted `firebaseConfig` object without executing it: the JS object
+ * literal is normalised to JSON, parsed, and every key/value is validated.
+ */
+export function parseFirebaseConfig(text: string): FirebaseConfig {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1 || end <= start) throw new Error("Paste the firebaseConfig object first");
+  const json = text
+    .slice(start, end + 1)
+    .replace(/\/\/[^\n]*/g, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/'([^'\\\n]*)'/g, '"$1"')
+    .replace(/([{,]\s*)([A-Za-z_$][\w$]*)\s*:/g, '$1"$2":')
+    .replace(/,(\s*[}\]])/g, "$1");
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    throw new Error("That does not look like a firebaseConfig object — copy it from the Firebase console");
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("Expected a firebaseConfig object");
+  }
+
+  const config: FirebaseConfig = {};
+  for (const [key, value] of Object.entries(parsed)) {
+    if (!(CONFIG_KEYS as readonly string[]).includes(key)) continue;
+    if (typeof value !== "string") throw new Error(`Config value for "${key}" must be text`);
+    config[key as keyof FirebaseConfig] = value;
+  }
+  if (!config.apiKey || !config.projectId) throw new Error("Config needs at least apiKey and projectId");
+  return config;
+}
+
+/** Pinned SDK bundles with their Subresource Integrity digests. */
+const FIREBASE_SDK = [
+  {
+    src: "https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js",
+    integrity: "sha384-yuGdyIzzYtOBlBG6JOWn+Ey9kpq7HocusNuxEGyyohr1eEyXpeEyehIIXC/hznw4",
+  },
+  {
+    src: "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js",
+    integrity: "sha384-nwX2Qpkhc2sv6L0ZPkLefLGguao67toSowvePuQvGF6cG+8MUphGI2uI94Ls3JF7",
+  },
+];
+
+function loadScript(src: string, integrity: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const s = document.createElement("script");
     s.src = src;
+    s.integrity = integrity;
+    s.crossOrigin = "anonymous";
     s.onload = () => resolve();
     s.onerror = () => reject(new Error(`Failed to load ${src}`));
     document.head.appendChild(s);
@@ -42,8 +105,7 @@ function loadScript(src: string): Promise<void> {
 export async function connectCloud(config: unknown): Promise<{ ok: boolean; error?: string }> {
   try {
     if (!window.firebase) {
-      await loadScript("https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js");
-      await loadScript("https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js");
+      for (const { src, integrity } of FIREBASE_SDK) await loadScript(src, integrity);
     }
     if (!window.firebase) throw new Error("Firebase SDK could not be loaded");
     if (!window.firebase.apps.length) window.firebase.initializeApp(config);

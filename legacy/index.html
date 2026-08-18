@@ -820,15 +820,7 @@ let progressChartInstance = null;   // kept for API parity; chart is drawn manua
    is saved on the device and used instead of the constant).
    Leave as null to run local-only.
 ================================================================ */
-const CLOUD_CONFIG = {
-    apiKey: "AIzaSyA2cCRRAxGXIadnRN5utYZNHJBfAtWu6Hc",
-    authDomain: "client-engagement-tracker.firebaseapp.com",
-    projectId: "client-engagement-tracker",
-    storageBucket: "client-engagement-tracker.firebasestorage.app",
-    messagingSenderId: "895733216240",
-    appId: "1:895733216240:web:d5e45613481976a57e6335",
-    measurementId: "G-B9LWV5E1TW"
-};
+const CLOUD_CONFIG = null;
 const FIRESTORE_COLLECTION = 'engagements';
 const USERS_COLLECTION = 'users';
 const TEAMS_COLLECTION = 'teams';
@@ -1163,7 +1155,13 @@ async function saveCloudConfig() {
         const start = raw.indexOf('{');
         const end = raw.lastIndexOf('}');
         if (start === -1 || end === -1) throw new Error('no { } object found');
-        cfg = new Function('return (' + raw.slice(start, end + 1) + ')')();
+        cfg = JSON.parse(
+            raw.slice(start, end + 1)
+                .replace(/\/\/[^\n]*/g, '')
+                .replace(/'([^'\\\n]*)'/g, '"$1"')
+                .replace(/([{,]\s*)([A-Za-z_$][\w$]*)\s*:/g, '$1"$2":')
+                .replace(/,(\s*[}\]])/g, '$1')
+        );
         if (!cfg || !cfg.apiKey || !cfg.projectId) throw new Error('config looks incomplete');
     } catch (e) {
         document.getElementById('cloudSetupMessage').innerHTML = '<span style="color:#9b1c1c;">⚠ Could not read the config: ' + e.message + '</span>';
@@ -2164,7 +2162,7 @@ function initRecognition() {
         if (box) {
             const div = document.createElement('div');
             div.textContent = fullTranscript.trim();
-            box.innerHTML = div.innerHTML + (interim ? ` <span class="interim">${interim}</span>` : '');
+            box.innerHTML = div.innerHTML + (interim ? ` <span class="interim">${escapeHtml(interim)}</span>` : '');
             box.scrollTop = box.scrollHeight;
         }
     };

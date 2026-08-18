@@ -12,7 +12,6 @@ export function AuthView({ onNavigate }: { onNavigate: (r: Route) => void }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [team, setTeam] = useState("CCS01");
-  const [role, setRole] = useState<Role>("agent");
   const [error, setError] = useState<string | null>(null);
 
   const firstIsAdmin = !state.users.some((u) => u.role === "admin");
@@ -27,16 +26,13 @@ export function AuthView({ onNavigate }: { onNavigate: (r: Route) => void }) {
     const trimmed = name.trim();
     if (!trimmed) return setError("Enter your name to continue.");
     const existing = state.users.find((u) => u.name.toLowerCase() === trimmed.toLowerCase());
-    if (existing) {
-      actions.login(existing.name, existing.team, existing.role, existing.email);
-      toast.push(`Welcome back, ${existing.name}`);
-      go({ name: existing.role === "agent" ? "tracker" : "dashboard" });
-    } else {
-      // Local mode: any name can enter with the chosen role (agent by default).
-      actions.login(trimmed, team, role, email || undefined);
-      toast.push(`Signed in as ${trimmed} (local mode)`);
-      go({ name: role === "agent" ? "tracker" : "dashboard" });
+    if (!existing) {
+      return setError("No account with that name. Create an account, or ask your administrator to add you.");
     }
+    // The role always comes from the stored account — never from the sign-in form.
+    actions.login(existing.name, existing.team, existing.role, existing.email);
+    toast.push(`Welcome back, ${existing.name}`);
+    go({ name: existing.role === "agent" ? "tracker" : "dashboard" });
   };
 
   const doSignup = (e: React.FormEvent) => {
@@ -45,7 +41,9 @@ export function AuthView({ onNavigate }: { onNavigate: (r: Route) => void }) {
     if (!trimmed) return setError("Enter your full name.");
     const existing = state.users.find((u) => u.name.toLowerCase() === trimmed.toLowerCase());
     if (existing) return setError("That name already exists. Sign in instead.");
-    const effectiveRole: Role = firstIsAdmin ? "admin" : role;
+    // Only the very first account is an administrator; everyone else starts as an
+    // agent and is promoted by an administrator in Administration.
+    const effectiveRole: Role = firstIsAdmin ? "admin" : "agent";
     actions.addUser(trimmed, team, effectiveRole, email || undefined);
     actions.login(trimmed, team, effectiveRole, email || undefined);
     toast.push(firstIsAdmin ? "First account created — you are the Administrator." : `Account created for ${trimmed}.`);
@@ -96,25 +94,9 @@ export function AuthView({ onNavigate }: { onNavigate: (r: Route) => void }) {
               <Field label="Full name">
                 <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Thandi Nkosi" autoFocus />
               </Field>
-              <div className="auth-grid-2">
-                <Field label="Team">
-                  <Select value={team} onChange={(e) => setTeam(e.target.value)}>
-                    {state.teams.map((t) => (
-                      <option key={t.id} value={t.name}>{t.name}</option>
-                    ))}
-                  </Select>
-                </Field>
-                <Field label="Role">
-                  <Select value={role} onChange={(e) => setRole(e.target.value as Role)}>
-                    {(Object.keys(ROLE_LABEL) as Role[]).map((r) => (
-                      <option key={r} value={r}>{ROLE_LABEL[r]}</option>
-                    ))}
-                  </Select>
-                </Field>
-              </div>
               {error ? <p className="auth-error">{error}</p> : null}
               <Button type="submit" className="auth-submit" size="lg">Enter tracker <Icon name="chevronRight" size={16} /></Button>
-              <p className="auth-note">Existing users are recognised by name and take on their assigned role automatically.</p>
+              <p className="auth-note">Existing users are recognised by name and take on their assigned team and role automatically.</p>
             </form>
           ) : (
             <form className="auth-form" onSubmit={doSignup}>
@@ -132,15 +114,12 @@ export function AuthView({ onNavigate }: { onNavigate: (r: Route) => void }) {
                     ))}
                   </Select>
                 </Field>
-                <Field label="Role">
-                  <Select value={role} onChange={(e) => setRole(e.target.value as Role)} disabled={firstIsAdmin}>
-                    {(Object.keys(ROLE_LABEL) as Role[]).map((r) => (
-                      <option key={r} value={r}>{ROLE_LABEL[r]}</option>
-                    ))}
-                  </Select>
-                </Field>
               </div>
-              {firstIsAdmin ? <div className="auth-hint"><Icon name="shield" size={14} /> The first account becomes the Administrator.</div> : null}
+              {firstIsAdmin ? (
+                <div className="auth-hint"><Icon name="shield" size={14} /> The first account becomes the Administrator.</div>
+              ) : (
+                <div className="auth-hint"><Icon name="shield" size={14} /> New accounts start as Agent — an administrator assigns higher roles.</div>
+              )}
               {error ? <p className="auth-error">{error}</p> : null}
               <Button type="submit" className="auth-submit" size="lg">Create account</Button>
               <p className="auth-note">Accounts are managed by your administrator. Roles can be changed anytime in Administration.</p>
