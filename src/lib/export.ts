@@ -17,11 +17,15 @@ function csvEscape(value: string | number | boolean): string {
 function download(filename: string, content: string, mime: string) {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  try {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+  } finally {
+    // Revoked after the click has been dispatched so the download is not cut short.
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
 }
 
 export type ReportKind = "engagements" | "agents" | "compliance" | "team";
@@ -119,7 +123,7 @@ export function complianceRows(records: EngagementRecord[], phrases: Phrase[], c
 
 export function printReport(title: string, subtitle: string, blocks: { heading: string; headers: string[]; rows: (string | number | boolean)[][] }[]) {
   const win = window.open("", "_blank", "width=1100,height=800");
-  if (!win) return;
+  if (!win) throw new Error("The print window was blocked — allow pop-ups for this site and try again");
   const esc = (s: string | number | boolean) =>
     String(s)
       .replace(/&/g, "&amp;")

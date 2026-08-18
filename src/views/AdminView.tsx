@@ -4,6 +4,7 @@ import { Avatar, Badge, Button, Card, CardHeader, Field, Input, Modal, Select, T
 import { ROLE_LABEL, type Role } from "../lib/types";
 import { Icon } from "../components/icons";
 import { fmtDate } from "../lib/format";
+import { logError } from "../lib/errors";
 import type { AppState } from "../lib/types";
 
 type Tab = "users" | "teams" | "data";
@@ -50,22 +51,31 @@ export function AdminView() {
       audit: state.audit,
       settings: { ...state.settings },
     };
-    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `engagement-tracker-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.push("Backup downloaded");
+    try {
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `engagement-tracker-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      toast.push("Backup downloaded");
+    } catch (e) {
+      toast.push(`Backup export failed: ${logError("admin.exportBackup", e)}`, "error");
+    }
   };
 
   const importBackup = (file: File) => {
     const reader = new FileReader();
+    reader.onerror = () => {
+      toast.push(`Could not read ${file.name}: ${logError("admin.importBackup", reader.error ?? new Error("file read failed"))}`, "error");
+    };
     reader.onload = () => {
       try {
         const data = JSON.parse(String(reader.result)) as Partial<AppState>;
-        if (!data.users || !data.teams || !data.records) throw new Error("missing sections");
+        if (!Array.isArray(data.users) || !Array.isArray(data.teams) || !Array.isArray(data.records)) {
+          throw new Error("the file is missing the users, teams or records sections");
+        }
         actions.restoreBackup({
           users: data.users,
           teams: data.teams,
@@ -78,11 +88,15 @@ export function AdminView() {
           settings: data.settings,
         });
         toast.push("Backup restored");
-      } catch {
-        toast.push("Could not read backup file", "error");
+      } catch (e) {
+        toast.push(`Could not restore backup: ${logError("admin.importBackup", e, { file: file.name })}`, "error");
       }
     };
-    reader.readAsText(file);
+    try {
+      reader.readAsText(file);
+    } catch (e) {
+      toast.push(`Could not open ${file.name}: ${logError("admin.importBackup", e)}`, "error");
+    }
   };
 
   return (
@@ -282,7 +296,7 @@ function AddTeamForm() {
   const [name, setName] = useState("");
   const submit = () => {
     const trimmed = name.trim().toUpperCase();
-    if (!trimmed) return;
+    if (!trimmed) return toast.push("Enter a team name", "error");
     actions.addTeam(trimmed);
     toast.push(`Team ${trimmed} added`);
     setName("");

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { errorMessage, logError } from "../lib/errors";
 
 interface SpeechRecognitionLike {
   continuous: boolean;
@@ -66,15 +67,18 @@ export function useSpeech(
     setListening(false);
     try {
       recRef.current?.stop();
-    } catch {
-      /* already stopped */
+    } catch (e) {
+      // Stopping an already-stopped recogniser is harmless, but never hide it.
+      logError("speech.stop", e);
     }
   }, []);
 
   const start = useCallback(() => {
-    if (!supported) return;
     const API = getSpeechAPI();
-    if (!API) return;
+    if (!supported || !API) {
+      setError("Speech recognition is not available in this browser. Use Chrome or Edge, or ask your manager to enable manual ticking.");
+      return;
+    }
     listeningRef.current = true;
     setListening(true);
     setError(null);
@@ -116,8 +120,12 @@ export function useSpeech(
         if (listeningRef.current) {
           try {
             rec.start();
-          } catch {
-            /* restart failed — user can retry */
+          } catch (e) {
+            // The session ended for good: reflect that instead of showing "Listening…".
+            logError("speech.restart", e);
+            listeningRef.current = false;
+            setListening(false);
+            setError(`Speech assistant stopped: ${errorMessage(e)}. Press start to listen again.`);
           }
         }
       };
@@ -128,8 +136,14 @@ export function useSpeech(
     setTranscript("");
     try {
       recRef.current.start();
-    } catch {
-      /* already running */
+    } catch (e) {
+      logError("speech.start", e);
+      // InvalidStateError just means it is already listening; anything else failed.
+      if (!(e instanceof DOMException && e.name === "InvalidStateError")) {
+        listeningRef.current = false;
+        setListening(false);
+        setError(`Could not start the speech assistant: ${errorMessage(e)}`);
+      }
     }
   }, [supported]);
 

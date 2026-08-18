@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import { useStore } from "../lib/store";
-import { Button, Card, CardHeader, EmptyState, Select, StatCard } from "../components/ui";
+import { Button, Card, CardHeader, EmptyState, Select, StatCard, useToast } from "../components/ui";
 import { Icon } from "../components/icons";
 import { agentSummaryRows, complianceRows, engagementsToRows, exportCSV, printReport, type ReportKind } from "../lib/export";
+import { logError } from "../lib/errors";
 import { avg, complianceScore, effectiveScore, pulseRate } from "../lib/format";
 
 type Range = "7" | "30" | "90" | "all";
@@ -16,6 +17,7 @@ const KINDS: { id: ReportKind; label: string; icon: "users" | "chart" | "shield"
 
 export function ReportsView() {
   const { state } = useStore();
+  const toast = useToast();
   const [kind, setKind] = useState<ReportKind>("team");
   const [range, setRange] = useState<Range>("30");
   const [team, setTeam] = useState("all");
@@ -63,31 +65,40 @@ export function ReportsView() {
   };
 
   const doCSV = () => {
-    if (!scoped.length) return;
+    if (!scoped.length) return toast.push("Nothing to export for this period and team", "error");
     const stamp = new Date().toISOString().slice(0, 10);
-    if (kind === "engagements") {
-      const { headers, keys, rows } = engagementsToRows(scoped, state.phrases, state.categories);
-      exportCSV(`Engagements_${stamp}.csv`, headers, rows, keys);
-    } else if (kind === "compliance") {
-      const { headers, keys, rows } = complianceRows(scoped, state.phrases, state.categories);
-      exportCSV(`Compliance_${stamp}.csv`, headers, rows, keys);
-    } else if (kind === "agents") {
-      const { headers, keys, rows } = agentSummaryRows(scoped);
-      exportCSV(`Agents_${stamp}.csv`, headers, rows, keys);
-    } else {
-      const blocks = buildBlocks();
-      const rows = blocks[0].rows.map((r) => r.reduce<Record<string, string | number | boolean>>((acc, v, i) => ({ ...acc, [blocks[0].headers[i]]: v }), {}));
-      exportCSV(`TeamPerformance_${stamp}.csv`, blocks[0].headers, rows, blocks[0].headers);
+    try {
+      if (kind === "engagements") {
+        const { headers, keys, rows } = engagementsToRows(scoped, state.phrases, state.categories);
+        exportCSV(`Engagements_${stamp}.csv`, headers, rows, keys);
+      } else if (kind === "compliance") {
+        const { headers, keys, rows } = complianceRows(scoped, state.phrases, state.categories);
+        exportCSV(`Compliance_${stamp}.csv`, headers, rows, keys);
+      } else if (kind === "agents") {
+        const { headers, keys, rows } = agentSummaryRows(scoped);
+        exportCSV(`Agents_${stamp}.csv`, headers, rows, keys);
+      } else {
+        const blocks = buildBlocks();
+        const rows = blocks[0].rows.map((r) => r.reduce<Record<string, string | number | boolean>>((acc, v, i) => ({ ...acc, [blocks[0].headers[i]]: v }), {}));
+        exportCSV(`TeamPerformance_${stamp}.csv`, blocks[0].headers, rows, blocks[0].headers);
+      }
+      toast.push("CSV exported");
+    } catch (e) {
+      toast.push(`CSV export failed: ${logError("reports.csv", e, { kind })}`, "error");
     }
   };
 
   const doPDF = () => {
-    if (!scoped.length) return;
-    printReport(
-      `${KINDS.find((k) => k.id === kind)?.label ?? "Report"} — Client Engagement Tracker`,
-      `${teamLabel} · ${rangeLabel} · ${scoped.length} engagements`,
-      buildBlocks(),
-    );
+    if (!scoped.length) return toast.push("Nothing to print for this period and team", "error");
+    try {
+      printReport(
+        `${KINDS.find((k) => k.id === kind)?.label ?? "Report"} — Client Engagement Tracker`,
+        `${teamLabel} · ${rangeLabel} · ${scoped.length} engagements`,
+        buildBlocks(),
+      );
+    } catch (e) {
+      toast.push(logError("reports.print", e, { kind }), "error");
+    }
   };
 
   return (

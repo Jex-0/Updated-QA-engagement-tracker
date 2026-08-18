@@ -1,4 +1,5 @@
 import type { EngagementRecord } from "./types";
+import { errorMessage, logError } from "./errors";
 
 /**
  * Optional cloud sync adapter. Restores the original app's Firebase Firestore
@@ -34,7 +35,11 @@ function loadScript(src: string): Promise<void> {
     const s = document.createElement("script");
     s.src = src;
     s.onload = () => resolve();
-    s.onerror = () => reject(new Error(`Failed to load ${src}`));
+    s.onerror = () => {
+      // Remove the failed tag so a retry re-requests the script.
+      s.remove();
+      reject(new Error(`Failed to load ${src} — check the network connection and any content blockers`));
+    };
     document.head.appendChild(s);
   });
 }
@@ -50,7 +55,7 @@ export async function connectCloud(config: unknown): Promise<{ ok: boolean; erro
     db = window.firebase.firestore();
     return { ok: true };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    return { ok: false, error: logError("cloud.connect", e) };
   }
 }
 
@@ -78,17 +83,39 @@ function recordFromDoc(doc: { id: string; data(): Record<string, unknown> }): En
 }
 
 export async function pullCloudRecords(): Promise<EngagementRecord[]> {
-  if (!db) throw new Error("Not connected");
+  if (!db) throw new Error("Not connected to a Firebase project");
   const snap = await db.collection("engagements").get();
-  return snap.docs.map(recordFromDoc).filter((r): r is EngagementRecord => r != null);
+  const records: EngagementRecord[] = [];
+  let skipped = 0;
+  for (const doc of snap.docs) {
+    const record = recordFromDoc(doc);
+    if (record) records.push(record);
+    else skipped++;
+  }
+  // Unreadable documents used to disappear without a trace.
+  if (skipped) console.warn(`[cloud.pull] skipped ${skipped} cloud document(s) without a usable score`);
+  return records;
+}
+
+/** Thrown when a push stops part-way so the caller can report what did land. */
+export class CloudPushError extends Error {
+  constructor(readonly pushed: number, readonly total: number, readonly reason: unknown) {
+    super(`Push stopped after ${pushed} of ${total} engagements: ${errorMessage(reason)}`);
+    this.name = "CloudPushError";
+  }
 }
 
 export async function pushCloudRecords(records: EngagementRecord[]): Promise<number> {
-  if (!db) throw new Error("Not connected");
+  if (!db) throw new Error("Not connected to a Firebase project");
   let pushed = 0;
   for (const r of records) {
     const { id: _id, status: _status, ...payload } = r;
-    await db.collection("engagements").add({ ...payload, cloudId: r.id });
+    try {
+      await db.collection("engagements").add({ ...payload, cloudId: r.id });
+    } catch (e) {
+      logError("cloud.push", e, { recordId: r.id, pushed });
+      throw new CloudPushError(pushed, records.length, e);
+    }
     pushed++;
   }
   return pushed;

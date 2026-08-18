@@ -2,8 +2,9 @@ import { useState } from "react";
 import { useStore } from "../lib/store";
 import { Button, Card, CardHeader, Switch, Textarea, useToast } from "../components/ui";
 import { Icon } from "../components/icons";
-import { connectCloud, disconnectCloud, pullCloudRecords, pushCloudRecords } from "../lib/cloud";
+import { CloudPushError, connectCloud, disconnectCloud, pullCloudRecords, pushCloudRecords } from "../lib/cloud";
 import { fmtDateTime } from "../lib/format";
+import { logError } from "../lib/errors";
 
 export function SettingsView() {
   const { state, actions } = useStore();
@@ -20,7 +21,13 @@ export function SettingsView() {
       const start = configText.indexOf("{");
       const end = configText.lastIndexOf("}");
       if (start === -1 || end === -1) throw new Error("Paste the firebaseConfig object first");
-      const cfg = new Function("return (" + configText.slice(start, end + 1) + ")")();
+      let cfg: unknown;
+      try {
+        cfg = new Function("return (" + configText.slice(start, end + 1) + ")")();
+      } catch (e) {
+        throw new Error(`That does not look like a valid firebaseConfig object: ${logError("settings.parseConfig", e)}`);
+      }
+      if (!cfg || typeof cfg !== "object") throw new Error("The pasted firebaseConfig is not an object");
       setBusy(true);
       const res = await connectCloud(cfg);
       if (!res.ok) throw new Error(res.error ?? "connection failed");
@@ -31,7 +38,7 @@ export function SettingsView() {
       if (fresh.length) actions.importRecords(fresh);
       toast.push(`Connected — ${fresh.length} cloud engagement${fresh.length === 1 ? "" : "s"} imported`);
     } catch (e) {
-      toast.push(e instanceof Error ? e.message : "Could not connect", "error");
+      toast.push(logError("settings.connectCloud", e), "error");
     } finally {
       setBusy(false);
     }
@@ -44,7 +51,9 @@ export function SettingsView() {
       actions.setCloud({ lastSyncAt: Date.now() });
       toast.push(`${pushed} engagement${pushed === 1 ? "" : "s"} pushed to the cloud`);
     } catch (e) {
-      toast.push(e instanceof Error ? e.message : "Push failed", "error");
+      // A partial push still synced some engagements, so keep the sync stamp.
+      if (e instanceof CloudPushError && e.pushed > 0) actions.setCloud({ lastSyncAt: Date.now() });
+      toast.push(`Push failed: ${logError("settings.pushCloud", e)}`, "error");
     } finally {
       setBusy(false);
     }

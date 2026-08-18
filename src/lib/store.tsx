@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useReducer, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useReducer, useState, type ReactNode } from "react";
 import type {
   AppState,
   AuditEntry,
@@ -14,8 +14,10 @@ import type {
 } from "./types";
 import { firstAccountRole, initialState, uid, withSampleData } from "./seed";
 import { DEFAULT_CATEGORIES, DEFAULT_PHRASES } from "./checklist";
+import { isQuotaExceeded, logError } from "./errors";
 
 const STORAGE_KEY = "qe-platform-v2";
+const CORRUPTED_KEY = `${STORAGE_KEY}:corrupted`;
 
 /* ------------------------------- helpers ------------------------------ */
 
@@ -24,26 +26,39 @@ function audit(action: string, entity: string, actor: string, oldValue?: unknown
 }
 
 function loadState(): AppState {
+  let raw: string | null = null;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as Partial<AppState>;
-      if (parsed && parsed.users && parsed.teams && parsed.settings) {
-        const base = initialState();
-        return {
-          ...base,
-          ...parsed,
-          // newer fields merged so old saved state keeps working
-          categories: parsed.categories?.length ? parsed.categories : base.categories,
-          phrases: parsed.phrases?.length ? parsed.phrases : base.phrases,
-          settings: { ...base.settings, ...parsed.settings },
-        };
-      }
-    }
-  } catch {
-    /* corrupted state — fall through to a fresh install */
+    raw = localStorage.getItem(STORAGE_KEY);
+  } catch (e) {
+    logError("store.load", e);
+    return initialState();
   }
-  return initialState();
+  if (!raw) return initialState();
+  try {
+    const parsed = JSON.parse(raw) as Partial<AppState>;
+    if (!parsed || !parsed.users || !parsed.teams || !parsed.settings) {
+      throw new Error("saved workspace is missing the users, teams or settings sections");
+    }
+    const base = initialState();
+    return {
+      ...base,
+      ...parsed,
+      // newer fields merged so old saved state keeps working
+      categories: parsed.categories?.length ? parsed.categories : base.categories,
+      phrases: parsed.phrases?.length ? parsed.phrases : base.phrases,
+      settings: { ...base.settings, ...parsed.settings },
+    };
+  } catch (e) {
+    logError("store.load", e, { bytes: raw.length });
+    // Keep the unreadable payload so it can still be recovered manually
+    // instead of being overwritten by the fresh install below.
+    try {
+      localStorage.setItem(CORRUPTED_KEY, raw);
+    } catch (writeError) {
+      logError("store.load", writeError);
+    }
+    return initialState();
+  }
 }
 
 /* ------------------------------- reducer ------------------------------ */
@@ -296,6 +311,8 @@ function reducer(state: AppState, action: Action): AppState {
 interface StoreValue {
   state: AppState;
   dispatch: (action: Action) => void;
+  /** Set when the workspace could not be written to localStorage. */
+  persistError: string | null;
   actions: {
     login(name: string, team: string, role: Role, email?: string): void;
     logout(): void;
@@ -333,12 +350,19 @@ const StoreContext = createContext<StoreValue | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, undefined, loadState);
+  const [persistError, setPersistError] = useState<string | null>(null);
 
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch {
-      /* storage full or unavailable — app continues in memory */
+      setPersistError(null);
+    } catch (e) {
+      logError("store.persist", e, { records: state.records.length });
+      setPersistError(
+        isQuotaExceeded(e)
+          ? "Storage is full — changes are only kept in this tab. Export a backup and reset old engagements."
+          : "Changes could not be saved to this device and will be lost when the tab closes. Export a backup.",
+      );
     }
   }, [state]);
 
@@ -397,7 +421,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
       openDispute(engagementId, reason) {
         const rec = state.records.find((r) => r.id === engagementId);
-        if (!rec) return;
+        if (!rec) throw new Error(`Engagement ${engagementId} no longer exists — the dispute was not opened`);
         const dispute: Dispute = {
           id: uid(),
           engagementId,
@@ -476,8 +500,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         dispatch({ type: "RESET_ALL" });
       },
     };
-    return { state, dispatch, actions };
-  }, [state]);
+    return { state, dispatch, persistError, actions };
+  }, [state, persistError]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }
