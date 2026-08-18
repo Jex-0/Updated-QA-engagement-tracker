@@ -36,7 +36,7 @@ npm run test:coverage # unit tests + coverage report for src/lib
 
 ## Deployment (GitHub Pages)
 
-The app is a Vite build, so GitHub cannot serve it from the source files — it must be built first. `.github/workflows/pages.yml` builds `dist/` and publishes it on every push to `main`. Enable it once in **Settings → Pages → Build and deployment → Source: GitHub Actions**; the live URL is then `https://<owner>.github.io/<repo>/`.
+The app is a Vite build, so GitHub cannot serve it from the source files — it must be built first. `.github/workflows/deploy-pages.yml` builds `dist/` and publishes it on every push to `main`. Enable it once in **Settings → Pages → Build and deployment → Source: GitHub Actions**; the live URL is then `https://<owner>.github.io/<repo>/`.
 
 ## Documentation
 
