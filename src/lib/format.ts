@@ -1,5 +1,5 @@
 import type { ChecklistCategory, EngagementRecord, Phrase } from "./types";
-import { resolvePhrase } from "./checklist";
+import { categoryNameOf, resolvePhrase } from "./checklist";
 
 export function fmtDate(ts: number): string {
   return new Date(ts).toLocaleDateString("en-ZA", { day: "2-digit", month: "short", year: "numeric" });
@@ -38,16 +38,17 @@ export function yesNo(value: boolean): string {
 }
 
 /** The single place the good / watch / poor score thresholds are defined. */
-export function scoreBand(score: number): "high" | "mid" | "low" {
+export function scoreTone(score: number): "high" | "mid" | "low" {
   return score >= 80 ? "high" : score >= 50 ? "mid" : "low";
 }
 
 const BAND_TONE = { high: "success", mid: "warning", low: "danger" } as const;
 
-export type ScoreTone = (typeof BAND_TONE)[keyof typeof BAND_TONE];
+export type ScoreBadgeTone = (typeof BAND_TONE)[keyof typeof BAND_TONE];
 
-export function scoreTone(score: number): ScoreTone {
-  return BAND_TONE[scoreBand(score)];
+/** Badge / progress-bar tone for a score. */
+export function scoreBadgeTone(score: number): ScoreBadgeTone {
+  return BAND_TONE[scoreTone(score)];
 }
 
 /** Compliance is pass / needs-attention only — never rendered as a failure. */
@@ -56,7 +57,7 @@ export function complianceTone(score: number): "success" | "warning" {
 }
 
 export function scoreColor(score: number): string {
-  return `var(--${scoreTone(score)})`;
+  return `var(--${scoreBadgeTone(score)})`;
 }
 
 /** Effective score after any manager correction. */
@@ -141,8 +142,7 @@ export function complianceBreakdown(
   phrases: Phrase[],
   categories: ChecklistCategory[],
 ): ComplianceBreakdown {
-  const isCompliance = (id: string) =>
-    COMPLIANCE_CATEGORIES.has(resolvePhrase(categories, phrases, id)?.categoryId ?? id);
+  const isCompliance = (id: string) => COMPLIANCE_CATEGORIES.has(categoryNameOf(categories, phrases, id));
   const compliant = record.checkedItems.filter(isCompliance);
   const nonCompliant = record.missedItems.filter(isCompliance);
   const total = compliant.length + nonCompliant.length;

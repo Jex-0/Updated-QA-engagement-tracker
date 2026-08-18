@@ -175,17 +175,20 @@ export function resolvePhrase(
   return null;
 }
 
+/** Category name of a stored item; unresolvable ids (legacy names) resolve to themselves. */
+export function categoryNameOf(categories: ChecklistCategory[], phrases: Phrase[], id: string): string {
+  const phrase = resolvePhrase(categories, phrases, id);
+  if (!phrase) return id;
+  return categoryById(categories, phrase.categoryId)?.name ?? phrase.categoryId;
+}
+
 /** Display label for a stored item: category name for phrases, itself for legacy names. */
 export function resolveCategoryLabel(
   categories: ChecklistCategory[],
   phrases: Phrase[],
   idOrCategory: string,
 ): string {
-  const phrase = resolvePhrase(categories, phrases, idOrCategory);
-  if (phrase) {
-    return categoryById(categories, phrase.categoryId)?.name ?? phrase.categoryId;
-  }
-  return idOrCategory;
+  return categoryNameOf(categories, phrases, idOrCategory);
 }
 
 /** Phrase text for a stored item (legacy names render as their category name). */

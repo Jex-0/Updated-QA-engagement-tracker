@@ -2,10 +2,10 @@ import type { ChecklistCategory, EngagementRecord, Phrase, TimelineEvent } from 
 import {
   categoryEventLabel,
   categoryEventType,
+  categoryNameOf,
   coachingForCategory,
   missedOpportunityLabel,
   PULSE_LABEL,
-  resolveCategoryLabel,
   resolvePhrase,
 } from "./checklist";
 import { uid } from "./seed";
@@ -68,7 +68,7 @@ export function buildTimelineFromSession(
   pulseCompleted: boolean,
 ): TimelineEvent[] {
   const events: TimelineEvent[] = [];
-  const categoryOf = (phrase: Phrase) => resolveCategoryLabel(categories, phrases, phrase.id);
+  const categoryOf = (phrase: Phrase) => categoryNameOf(categories, phrases, phrase.id);
 
   for (const phrase of phrases) {
     const seconds = ticks[phrase.id];
@@ -99,7 +99,7 @@ export function buildTimelineForRecord(
   if (record.timeline && record.timeline.length) return record.timeline;
 
   const DURATION = 600; // 10 minutes
-  const categoryOf = (phrase: Phrase) => resolveCategoryLabel(categories, phrases, phrase.id);
+  const categoryOf = (phrase: Phrase) => categoryNameOf(categories, phrases, phrase.id);
   const checked = resolvePhrases(categories, phrases, record.checkedItems);
 
   const events: TimelineEvent[] = checked.map((phrase, i) =>
@@ -116,6 +116,6 @@ export function buildTimelineForRecord(
 
 /** Coaching recommendations generated from the steps that were missed. */
 export function coachingRecommendations(record: EngagementRecord, categories: ChecklistCategory[], phrases: Phrase[]): string[] {
-  const advice = record.missedItems.map((id) => coachingForCategory(resolveCategoryLabel(categories, phrases, id)));
+  const advice = record.missedItems.map((id) => coachingForCategory(categoryNameOf(categories, phrases, id)));
   return [...new Set(advice)];
 }
