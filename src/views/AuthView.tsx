@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useStore } from "../lib/store";
+import { LOGO_SRC } from "../lib/assets";
 import { Avatar, Badge, Button, Field, Input, Select, useToast } from "../components/ui";
 import { ROLE_LABEL, type Role } from "../lib/types";
 import { Icon } from "../components/icons";
@@ -65,7 +66,7 @@ export function AuthView({ onNavigate }: { onNavigate: (r: Route) => void }) {
       <div className="auth-brand-panel">
         <div className="auth-brand-inner">
           <div className="auth-brand-logo">
-            <img src="/CPI.JO-7f69f481.png" alt="Capitec Bank" />
+            <img src={LOGO_SRC} alt="Capitec Bank" />
           </div>
           <h1>Client Engagement Tracker</h1>
           <p className="auth-tagline">
