@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useStore } from "../lib/store";
 import { Button, Card, CardHeader, Switch, Textarea, useToast } from "../components/ui";
 import { Icon } from "../components/icons";
-import { connectCloud, disconnectCloud, pullCloudRecords, pushCloudRecords } from "../lib/cloud";
+import { connectCloud, disconnectCloud, parseFirebaseConfig, pullCloudRecords, pushCloudRecords } from "../lib/cloud";
 import { fmtDateTime } from "../lib/format";
 
 export function SettingsView() {
@@ -17,10 +17,7 @@ export function SettingsView() {
 
   const connect = async () => {
     try {
-      const start = configText.indexOf("{");
-      const end = configText.lastIndexOf("}");
-      if (start === -1 || end === -1) throw new Error("Paste the firebaseConfig object first");
-      const cfg = new Function("return (" + configText.slice(start, end + 1) + ")")();
+      const cfg = parseFirebaseConfig(configText);
       setBusy(true);
       const res = await connectCloud(cfg);
       if (!res.ok) throw new Error(res.error ?? "connection failed");
